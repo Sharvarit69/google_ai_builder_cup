@@ -28,7 +28,22 @@ class Character(BaseModel):
 class Prop(BaseModel):
     name: str
     description: str
-    state_by_shot: dict[str, str] = Field(default_factory=dict)  # {"S1": "closed"}
+    # The prop's state at the END of each shot, e.g. {"S1": "closed", "S4": "open"}
+    state_by_shot: dict[str, str] = Field(default_factory=dict)
+
+    def states_for(self, shot_id: str) -> tuple[str, str]:
+        """(state at the start, state at the end) of a shot.
+
+        A shot starts in the state the previous shot ended in, so a prop may
+        change during a shot (a box being opened) without that being an error.
+        """
+        end = self.state_by_shot.get(shot_id, "")
+        try:
+            previous = f"S{int(shot_id[1:]) - 1}"
+        except ValueError:
+            previous = ""
+        start = self.state_by_shot.get(previous, "") or end
+        return start, end
 
 
 class Canon(BaseModel):

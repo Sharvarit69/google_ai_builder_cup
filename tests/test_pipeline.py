@@ -45,6 +45,22 @@ def planned_episode(n=4) -> Episode:
     return ep
 
 
+def scripted_check(mismatches_by_attempt):
+    """A critic stand-in: attempt N of a shot gets the given number of mismatches."""
+    from dramagraph.critic import decide
+    from dramagraph.models import CheckResult, CriticResult
+    calls = {}
+
+    def check(path, spec, canon, prev):
+        n = calls[spec.shot_id] = calls.get(spec.shot_id, 0) + 1
+        bad = mismatches_by_attempt[min(n, len(mismatches_by_attempt)) - 1]
+        make = lambda i: CheckResult(verdict="mismatch" if i < bad else "match", observed="x")
+        r = CriticResult(wardrobe=make(0), prop_state=make(1), scene=make(2))
+        r.decision = decide(r)
+        return r
+    return check
+
+
 # ---------- planning ----------
 
 def test_planning_end_to_end(client):
@@ -167,16 +183,16 @@ def test_running_again_costs_nothing(client):
 
 
 def test_clip_already_stored_is_reused_after_crash(client):
-    ep = planned_episode(1)
+    ep = planned_episode(2)
     storage.save_bytes(storage.clip_path("ep1", "S1", 1), b"paid for earlier")
     pipeline.run_generation(ep)
-    assert ration.used() == 0 and client.veo_prompts == [] and ep.shots[0].status == "ACCEPTED"
+    assert ep.shots[0].status == "ACCEPTED" and ep.shots[0].attempts[0].prompt
+    assert ration.used() == 8 and len(client.veo_prompts) == 1     # only shot 2 was generated
 
 
 def test_repair_that_never_works_is_flagged_then_overruled(client, monkeypatch):
-    ep = planned_episode(2)
-    ep.canon.props[0].state_by_shot["S1"] = "open with the lid off"   # every clip will "fail"
-    pipeline.run_generation(ep)
+    ep = planned_episode(1)
+    pipeline.run_generation(ep, check=scripted_check([1]))      # every clip fails
     s1 = ep.shots[0]
     assert len(s1.attempts) == 3 and s1.status == "FLAGGED" and s1.chosen_attempt == 3
     assert ep.status == "NEEDS_REVIEW" and not pipeline.can_export(ep)[0]
@@ -221,17 +237,94 @@ def test_failed_generation_is_retried_then_skipped_then_second_pass(client):
     assert ration.used() == 16    # rejected requests were refunded
 
 
-def test_refusal_is_not_retried_and_ends_flagged(client):
+def test_refusals_are_retried_free_of_charge(client):
     ep = planned_episode(1)
-    client.refuse_next = 2      # refused in the first pass and again in the second
+    client.refuse_next = 2      # two refusals, then it works
     pipeline.run_generation(ep)
     s1 = ep.shots[0]
-    assert len(s1.attempts) == 2 and all(a.error.startswith("REFUSED") for a in s1.attempts)
-    assert s1.status == "FLAGGED" and s1.chosen_attempt is None
+    assert [bool(a.clip_uri) for a in s1.attempts] == [False, False, True]
+    assert s1.status == "ACCEPTED" and ration.used() == 8
+
+
+def test_shot_refused_every_time_ends_flagged_and_costs_nothing(client):
+    ep = planned_episode(1)
+    client.refuse_next = 6      # three tries in the first pass, three in the second
+    pipeline.run_generation(ep)
+    s1 = ep.shots[0]
+    assert len(s1.attempts) == 6 and all(a.error.startswith("REFUSED") for a in s1.attempts)
+    assert s1.status == "FLAGGED" and s1.chosen_attempt is None and ration.used() == 0
     with pytest.raises(ValueError, match="no clip"):
         pipeline.overrule(ep, "S1")
+    with pytest.raises(ValueError, match="no checked clip"):
+        pipeline.auto_repair(ep, "S1")
     pipeline.drop(ep, "S1")
     assert pipeline.can_export(ep) == (False, "Every shot was dropped.")
+
+
+def test_prop_may_change_during_a_shot(client):
+    """Shot 4 starts closed (as shot 3 ended) and ends open. That is not an error."""
+    from dramagraph.critic import build_prompt
+    ep = planned_episode()
+    prop = ep.canon.props[0]
+    assert prop.states_for("S1") == ("closed", "closed")
+    assert prop.states_for("S4") == ("closed", "open and empty")
+    s1, s4 = ep.shots[0].spec, ep.shots[3].spec
+    assert "For the whole shot it must be: CLOSED" in build_prompt(s1, ep.canon)
+    c4 = build_prompt(s4, ep.canon)
+    assert "By the end of the shot it must be: OPEN AND EMPTY" in c4 and "It may begin as closed" in c4
+    v4 = compile_prompt(s4, ep.canon)
+    assert "At the start of the shot it is closed. By the end of the shot it is open and empty." in v4
+    assert "No speech" in v4
+
+
+def test_canon_keeps_at_most_two_props():
+    from dramagraph.models import Beat
+    def ask(**kw):
+        return canon_mod.CanonDraft(name="P", appearance="a", wardrobe="w", location="l", time_of_day="d",
+            props=[canon_mod.PropDraft(name=n, states=["x"]) for n in ("box", "clock", "note", "pen")])
+    picked = [Beat(beat_id="B1", script_lines=[1], action="x", caption="x")]
+    assert [p.name for p in canon_mod.build_canon(["a"], picked, ask=ask).props] == ["box", "clock"]
+
+
+def test_recheck_after_simplifying_details_makes_no_video(client):
+    """The first real run: an impossible requirement failed every clip. Removing it and
+    re-checking accepts the clips already paid for."""
+    ep = planned_episode(2)
+    pipeline.run_generation(ep, check=scripted_check([1]))      # a requirement no clip can meet
+    assert [s.status for s in ep.shots] == ["FLAGGED", "FLAGGED"]
+    assert [len(s.attempts) for s in ep.shots] == [3, 3]
+    made, used = len(client.veo_prompts), ration.used()
+
+    seen = []   # the creator removes that requirement, then re-checks with the normal critic
+    pipeline.recheck(ep, on_progress=lambda m, f: seen.append(m))
+    assert [s.status for s in ep.shots] == ["ACCEPTED", "ACCEPTED"] and ep.status == "READY"
+    assert (len(client.veo_prompts), ration.used()) == (made, used)
+    assert ep.shots[1].attempts[-1].critic.cross_shot.verdict == "match" and seen[-1] == "Done"
+
+
+def test_recheck_keeps_the_repaired_attempt(client):
+    ep = planned_episode(2)
+    ep.seeded_error = SeededError(shot_id="S1", kind="prop", value="open, with the lid off")
+    pipeline.run_generation(ep)                 # attempt 1 seeded bad, attempt 2 repaired
+    s1 = ep.shots[0]
+    assert s1.chosen_attempt == 2 and s1.status == "ACCEPTED"
+    pipeline.recheck(ep)
+    assert s1.chosen_attempt == 2 and s1.attempts[0].critic.decision == "REGENERATE"
+    assert ration.used() == 24
+
+
+def test_auto_repair_button_fixes_a_flagged_shot(client, monkeypatch):
+    monkeypatch.setenv("MAX_REPAIRS", "0")      # so the first run leaves it flagged
+    ep = planned_episode(2)
+    ep.seeded_error = SeededError(shot_id="S1", kind="prop", value="open, with the lid off")
+    pipeline.run_generation(ep)
+    assert ep.shots[0].status == "FLAGGED"
+    with pytest.raises(ValueError, match="all its repair attempts"):
+        pipeline.auto_repair(ep, "S1")
+    monkeypatch.setenv("MAX_REPAIRS", "2")
+    pipeline.auto_repair(ep, "S1")
+    assert ep.shots[0].status == "ACCEPTED" and ep.shots[0].chosen_attempt == 2
+    assert ep.status == "READY"
 
 
 def test_ration_running_out_flags_the_rest(client, monkeypatch):
@@ -265,8 +358,11 @@ def test_dropped_shot_is_skipped_for_cross_shot_comparison(client):
 
 def test_pick_best_attempt_prefers_fewest_mismatches(client):
     ep = planned_episode(1)
-    ep.canon.props[0].state_by_shot["S1"] = "open with the lid off"
-    ep.seeded_error = SeededError(shot_id="S1", kind="wardrobe", value="red kurta")
-    pipeline.run_generation(ep)     # attempt 1 has two mismatches, repairs have one
+    pipeline.run_generation(ep, check=scripted_check([2, 1, 1]))
     s1 = ep.shots[0]
     assert repair.pick_best_attempt(s1) == 3 and s1.status == "FLAGGED"
+
+    ep2 = planned_episode(1)
+    ep2.episode_id = "ep2"
+    pipeline.run_generation(ep2, check=scripted_check([1, 1, 3]))
+    assert ep2.shots[0].chosen_attempt == 2      # the last attempt was worse, so it is not used

@@ -15,4 +15,12 @@ def render() -> None:
     }
     chosen = st.selectbox("Open", list(labels), format_func=labels.get)
     if chosen:
-        show_episode(storage.load_episode(chosen))
+        episode = storage.load_episode(chosen)
+        if episode.mode == "GENERATE":
+            def reopen(episode_id=chosen):
+                st.session_state["episode_id"] = episode_id
+                st.session_state["screen"] = "New episode"
+
+            st.button("Continue working on this episode", on_click=reopen,
+                      help="Opens it in the episode screen to re-check, repair or export.")
+        show_episode(episode)

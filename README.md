@@ -9,7 +9,7 @@ shots that fail. It can also check clips made elsewhere.
 
 ## Status
 
-Working: script to story beats, character and prop details, shot plan, Veo generation with a spending cap, continuity checks, automatic repair of failed shots, and a check-only mode for clips made elsewhere. Stitching the final video is next.
+Working: script to story beats, character and prop details, shot plan, Veo generation with a spending cap, continuity checks, automatic repair of failed shots, and a check-only mode for clips made elsewhere. Accepted shots are stitched into one vertical video with a title screen and captions.
 
 ## Run locally
 

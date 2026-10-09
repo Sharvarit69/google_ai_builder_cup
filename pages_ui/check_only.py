@@ -39,7 +39,7 @@ def render() -> None:
         location = st.text_input("Location", "office desk")
         time_of_day = st.text_input("Time of day", "daytime")
         prop_name = st.text_input("Prop (leave empty for none)", "round steel lunch box")
-        st.subheader("Prop state in each clip")
+        st.subheader("Prop state at the end of each clip")
         states = [
             st.text_input(f"Clip {i + 1}: {f.name}", "closed", key=f"state_{i}")
             for i, f in enumerate(files[:MAX_CLIPS])

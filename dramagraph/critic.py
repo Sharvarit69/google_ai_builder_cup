@@ -28,10 +28,13 @@ def build_prompt(spec: ShotSpec, canon: Canon, has_previous: bool = False) -> st
 
     prop_lines = []
     for p in canon.props:
-        state = p.state_by_shot.get(spec.shot_id)
+        start, end = p.states_for(spec.shot_id)
         line = f"{p.name} ({p.description})" if p.description else p.name
-        if state:
-            line += f". For the whole shot it must be: {state.upper()}"
+        if end and start.strip().lower() == end.strip().lower():
+            line += f". For the whole shot it must be: {end.upper()}"
+        elif end:
+            line += (f". By the end of the shot it must be: {end.upper()}. It may begin as "
+                     f"{start} and change during the shot")
         prop_lines.append(line)
     prop = "; ".join(prop_lines) if prop_lines else "no specific prop required"
 

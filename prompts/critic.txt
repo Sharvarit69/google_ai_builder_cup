@@ -13,6 +13,10 @@ each check. A verdict must be exactly one of:
 Use "unclear" only when the item is hidden, blurred or out of frame.
 If you can see it and it agrees, the verdict is "match".
 If a required prop is not in the video at all, prop_state is "mismatch".
+
+Judge only the items listed under EXPECTED. Do not mark a mismatch for the
+exact position of an object (on the desk or in her lap), for background
+objects, for the time shown on a clock, or for writing that is unreadable.
 If the person is visibly a different person, or wears different clothes,
 wardrobe is "mismatch".
 

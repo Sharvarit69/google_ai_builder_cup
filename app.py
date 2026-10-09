@@ -9,7 +9,7 @@ from pages_ui import check_only, episodes, new_episode
 st.set_page_config(page_title="DramaGraph", page_icon="🎬", layout="wide")
 st.sidebar.title("DramaGraph")
 st.sidebar.caption("Continuity checker for AI-generated short videos")
-screen = st.sidebar.radio("Screen", ["New episode", "Check clips", "Saved"])
+screen = st.sidebar.radio("Screen", ["New episode", "Check clips", "Saved"], key="screen")
 
 settings = get_settings()
 st.sidebar.divider()

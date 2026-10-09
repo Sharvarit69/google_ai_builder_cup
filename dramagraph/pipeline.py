@@ -39,12 +39,11 @@ def _check(episode, shot, attempt, check) -> None:
 
 
 def _settle(shot: Shot) -> None:
-    """Decide the shot's status from its attempts."""
-    last = next((a for a in reversed(shot.attempts) if a.clip_uri), None)
-    if last and last.critic and last.critic.decision == "ACCEPT":
-        shot.chosen_attempt, shot.status = last.attempt_no, "ACCEPTED"
-    else:
-        shot.chosen_attempt, shot.status = pick_best_attempt(shot), "FLAGGED"
+    """Choose the best clip so far; the shot is accepted only if that clip passed."""
+    best = _attempt(shot, pick_best_attempt(shot))
+    shot.chosen_attempt = best.attempt_no if best else None
+    passed = bool(best and best.critic and best.critic.decision == "ACCEPT")
+    shot.status = "ACCEPTED" if passed else "FLAGGED"
 
 
 def _generate_and_check(episode, shot, prompt, kind, seeded, generate, check) -> Attempt:
@@ -142,6 +141,44 @@ def repair_with_instruction(episode: Episode, shot_id: str, instruction: str,
     if attempt.error == generator.RATION_EMPTY:
         raise ValueError("The Veo ration is used up.")
     _settle(shot)
+    return finish(episode)
+
+
+def auto_repair(episode: Episode, shot_id: str,
+                generate=generator.generate_with_retries, check=check_clip) -> Episode:
+    """One more automatic repair of a flagged shot, from the critic's own findings."""
+    shot = _shot(episode, shot_id)
+    current = _attempt(shot, shot.chosen_attempt)
+    if current is None or current.critic is None:
+        raise ValueError("There is no checked clip to repair from. Generate the shot first.")
+    if repairs_done(shot) >= get_settings().max_repairs:
+        raise ValueError("This shot has used all its repair attempts. Accept it or drop it.")
+    prompt = compile_prompt(shot.spec, episode.canon, auto_fix_notes(current.critic))
+    attempt = _generate_and_check(episode, shot, prompt, "AUTO_REPAIR", False, generate, check)
+    if attempt.error == generator.RATION_EMPTY:
+        raise ValueError("The Veo ration is used up.")
+    _settle(shot)
+    return finish(episode)
+
+
+def recheck(episode: Episode, on_progress: Progress = None, check=check_clip) -> Episode:
+    """Run the critic again on every clip already generated. Makes no new video.
+
+    Use after changing the character, prop or setting details.
+    """
+    todo = [(shot, a) for shot in episode.shots if shot.status != "DROPPED"
+            for a in shot.attempts if a.clip_uri]
+    for i, (shot, attempt) in enumerate(todo):
+        if on_progress:
+            on_progress(f"Re-checking shot {shot.spec.shot_id[1:]}", i / max(1, len(todo)))
+        attempt.critic, attempt.error = None, None
+        _check(episode, shot, attempt, check)
+        is_last = all(s is not shot for s, _ in todo[i + 1:])
+        if is_last:
+            _settle(shot)   # settle before later shots compare against this one
+        storage.save_episode(episode)
+    if on_progress:
+        on_progress("Done", 1.0)
     return finish(episode)
 
 
