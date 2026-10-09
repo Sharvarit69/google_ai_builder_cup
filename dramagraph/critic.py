@@ -139,7 +139,7 @@ def check_clip(
                                             observed="The critic did not report on this rule.")
         got.rule = rule.text
         result.rules.append(got)
-    result.observations = result.observations[:3]
+    result.observations = sorted(result.observations, key=lambda o: o.severity != "major")[:3]
     for o in result.observations:
         o.timestamp_seconds = max(0.0, o.timestamp_seconds)
     for v in result.violations:

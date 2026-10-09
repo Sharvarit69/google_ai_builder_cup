@@ -37,9 +37,16 @@ Finally, watch the clip once more as a script supervisor would and list, under
 above do not cover. For example: an object that appears from nowhere, vanishes
 or changes into something else; a hand or face that deforms; an action that
 contradicts what the shot is meant to show; something physically impossible.
-{action_note}List at most three, each with the second it happens. Only report
-what you actually saw. Do not repeat a mismatch you already reported, and do
-not list matters of taste. If there is nothing, "observations" is an empty list.
-Observations are advisory: they never change a verdict.
+{action_note}For each one give:
+- "what": the problem, in one sentence
+- "timestamp_seconds": when it happens
+- "severity": "major" if it breaks the story or an ordinary viewer would
+  clearly notice it on first watch; otherwise "minor"
+- "suggested_fix": one sentence saying what the shot should show instead.
+  Describe the correct picture, not the mistake.
+List at most three, most serious first. Only report what you actually saw.
+Do not repeat a mismatch you already reported, and do not list matters of
+taste. If there is nothing, "observations" is an empty list. Observations are
+advisory: they never change a verdict.
 
 Leave "decision" as null.

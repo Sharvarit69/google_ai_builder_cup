@@ -455,11 +455,27 @@ def test_observations_are_advisory_and_reported(client):
     ep.shots[0].spec.action = "She guards the box. extra finger"     # lands in the fake clip
     pipeline.run_generation(ep)
     critic_result = ep.shots[0].attempts[0].critic
-    assert [o.what for o in critic_result.observations] == ["A sixth finger appears on her left hand"]
+    assert [(o.severity, o.what) for o in critic_result.observations] == [
+        ("major", "A sixth finger appears on her left hand"),      # most serious first
+        ("minor", "The desk lamp flickers once")]
+    assert critic_result.observations[0].suggested_fix == "Both hands have five fingers throughout."
     assert critic_result.decision == "ACCEPT" and ep.shots[0].status == "ACCEPTED"   # no paid repair
     assert ration.used() == 16
-    assert ep.report["observations_noted"] == 1
-    assert "Also noticed (advisory) at 3.0s: A sixth finger" in report_to_markdown(ep.report)
+    assert (ep.report["observations_noted"], ep.report["major_observations"]) == (2, 1)
+    text = report_to_markdown(ep.report)
+    assert "Also noticed (major, advisory) at 3.0s: A sixth finger" in text
+    assert "Suggested fix: Both hands have five fingers throughout." in text
+
+
+def test_fixing_from_a_suggestion_learns_the_correct_state_not_the_mistake(client):
+    ep = planned_episode(2)
+    ep.shots[0].spec.action = "She guards the box. extra finger"
+    pipeline.run_generation(ep)
+    fix = ep.shots[0].attempts[0].critic.observations[0].suggested_fix
+    pipeline.reject_and_fix(ep, "S1", fix)
+    rule = ep.canon.rules[0]
+    assert rule.text == "Both hands have five fingers throughout." and "sixth" not in rule.text
+    assert "FIX: Both hands have five fingers throughout." in ep.shots[0].attempts[-1].prompt
 
 
 def test_critic_prompt_asks_for_observations_and_knows_the_action(client):
@@ -565,3 +581,85 @@ def test_old_saved_results_without_the_new_fields_still_load():
     old = '{"wardrobe": {"verdict": "match", "observed": "x"}, "prop_state": {"verdict": "match", "observed": "x"}, "scene": {"verdict": "match", "observed": "x"}}'
     r = CriticResult.model_validate_json(old)
     assert r.rules == [] and r.observations == [] and r.prop_look is None
+
+
+# ---------- one fix action, and choosing a clip by hand ----------
+
+def test_suggested_fix_prefers_a_failed_check_then_a_major_observation(client):
+    ep = planned_episode(2)
+    ep.shots[1].spec.action = "She pulls it closer. extra finger"
+    ep.seeded_error = SeededError(shot_id="S1", kind="prop", value="open, with the lid off")
+    pipeline.run_generation(ep)
+    # shot 1 was repaired and passed: nothing to suggest
+    assert pipeline.suggested_fix(ep.shots[0]) == ("", False)
+    # shot 2 passed its checks but the critic noticed something major
+    assert pipeline.suggested_fix(ep.shots[1]) == ("Both hands have five fingers throughout.", False)
+
+    failing = planned_episode(1)
+    failing.episode_id = "ep2"
+    failing.seeded_error = SeededError(shot_id="S1", kind="wardrobe", value="red kurta")
+    failing.canon.character.wardrobe = "red kurta"      # so every clip fails the wardrobe check
+    pipeline.run_generation(failing)
+    assert pipeline.suggested_fix(failing.shots[0]) == ("yellow kurta.", True)
+
+
+def test_fixing_with_the_checks_own_suggestion_does_not_add_a_rule(client):
+    ep = planned_episode(1)
+    ep.canon.character.wardrobe = "red kurta"
+    pipeline.run_generation(ep)
+    shot = ep.shots[0]
+    assert shot.status == "FLAGGED"
+    text, _ = pipeline.suggested_fix(shot)
+    ep.canon.character.wardrobe = "plain mustard-yellow kurta"   # so the fix can succeed
+    pipeline.fix_shot(ep, "S1", text)
+    assert ep.canon.rules == [] and shot.creator_catches == 0
+    assert shot.status == "ACCEPTED" and shot.attempts[-1].kind == "CUSTOM_REPAIR"
+
+
+def test_fixing_with_my_own_words_always_becomes_a_rule(client):
+    ep = planned_episode(2)
+    pipeline.run_generation(ep)
+    pipeline.fix_shot(ep, "S2", "her watch stays on her left wrist")
+    s2 = ep.shots[1]
+    assert [r.text for r in ep.canon.rules] == ["Her watch stays on her left wrist"]
+    assert s2.attempts[0].rejected and s2.creator_catches == 1 and s2.chosen_attempt == 2
+    with pytest.raises(ValueError, match="Say what should be shown"):
+        pipeline.fix_shot(ep, "S2", "   ")
+
+
+def test_creator_can_pick_any_clip_and_the_choice_survives_a_recheck(client):
+    ep = planned_episode(2)
+    ep.seeded_error = SeededError(shot_id="S1", kind="prop", value="open, with the lid off")
+    pipeline.run_generation(ep)
+    s1 = ep.shots[0]
+    assert s1.chosen_attempt == 2 and s1.status == "ACCEPTED"
+
+    pipeline.use_attempt(ep, "S1", 1)                 # the clip the critic rejected
+    assert (s1.chosen_attempt, s1.pinned_attempt, s1.status) == (1, 1, "OVERRULED")
+    assert ep.status == "READY" and ep.report["shots_overruled"] == 1
+    pipeline.recheck(ep)
+    assert (s1.chosen_attempt, s1.status) == (1, "OVERRULED")
+
+    pipeline.use_attempt(ep, "S1", 2)                 # back to the one that passed
+    assert (s1.chosen_attempt, s1.status) == (2, "ACCEPTED")
+    with pytest.raises(ValueError, match="no clip"):
+        pipeline.use_attempt(ep, "S1", 9)
+
+
+def test_a_new_fix_replaces_a_hand_picked_clip(client):
+    ep = planned_episode(2)
+    pipeline.run_generation(ep)
+    s1 = ep.shots[0]
+    pipeline.use_attempt(ep, "S1", 1)
+    pipeline.fix_shot(ep, "S1", "the lamp gives steady light")
+    assert s1.pinned_attempt is None and s1.chosen_attempt == 2 and s1.attempts[0].rejected
+
+
+def test_accept_as_is_keeps_that_clip_through_a_recheck(client):
+    ep = planned_episode(1)
+    pipeline.run_generation(ep, check=scripted_check([1]))      # never passes
+    s1 = ep.shots[0]
+    pipeline.overrule(ep, "S1")
+    kept = s1.chosen_attempt
+    pipeline.recheck(ep, check=scripted_check([1]))
+    assert (s1.chosen_attempt, s1.status) == (kept, "OVERRULED")

@@ -237,52 +237,45 @@ def _generate_step(ep, started) -> None:
         st.rerun()
     for shot in ep.shots:
         with st.container(border=True):
-            show_shot(shot)
-            sid = shot.spec.shot_id
-            current = next((a for a in shot.attempts if a.attempt_no == shot.chosen_attempt), None)
-            for oi, o in enumerate(current.critic.observations if current and current.critic else []):
-                if st.button(f"Make this a rule: {o.what[:70]}", key=f"obs_{sid}_{oi}",
-                             help="The critic will check this from now on. Costs no video; "
-                                  "use Re-check to apply it to the clips you have."):
-                    if _run("Learning the rule", lambda: pipeline.learn(ep, sid, o.what, "observation")):
-                        st.rerun()
-            if shot.status in ("ACCEPTED", "OVERRULED") and shot.chosen_attempt is not None:
-                with st.expander("I see a problem the critic missed"):
-                    st.caption("This clip is set aside, your note becomes a rule the critic checks "
-                               "from now on, and the shot is generated again "
-                               f"({shot.spec.duration_seconds} seconds of video).")
-                    seen = st.text_input(
-                        "What is wrong, and what should be shown instead", key=f"miss_{sid}",
-                        placeholder="the note pops into view; it should already be lying in the box")
-                    if st.button("Reject this clip and regenerate", key=f"rej_{sid}",
-                                 disabled=not (unlocked and seen.strip())):
-                        if _run("Generating and checking. This takes a minute or two.",
-                                lambda: pipeline.reject_and_fix(ep, sid, seen)):
-                            st.rerun()
-            if shot.status != "FLAGGED":
-                continue
-            a, r, b, c = st.columns(4)
-            if a.button("Accept anyway", key=f"ok_{sid}", disabled=shot.chosen_attempt is None):
-                if _run("Saving", lambda: pipeline.overrule(ep, sid)):
-                    st.rerun()
-            if r.button("Repair automatically", key=f"auto_{sid}",
-                        disabled=not unlocked or shot.chosen_attempt is None):
-                if _run("Generating and checking. This takes a minute or two.",
-                        lambda: pipeline.auto_repair(ep, sid)):
-                    st.rerun()
-            if c.button("Drop shot", key=f"drop_{sid}"):
-                if _run("Saving", lambda: pipeline.drop(ep, sid)):
-                    st.rerun()
-            fix = st.text_input("Fix with my instruction", key=f"fix_{sid}",
-                                placeholder="for example: the lunch box lid must stay on")
-            if b.button("Regenerate with my fix", key=f"go_{sid}",
-                        disabled=not (unlocked and fix.strip())):
-                if _run("Generating and checking. This takes a minute or two.",
-                        lambda: pipeline.repair_with_instruction(ep, sid, fix)):
-                    st.rerun()
+            _shot_card(ep, shot, unlocked)
 
     _export_step(ep)
     report_button(ep)
+
+
+def _shot_card(ep, shot, unlocked) -> None:
+    """Summary first, then one fix box and at most two other buttons."""
+    sid = shot.spec.shot_id
+
+    def use(attempt_no):
+        if _run("Saving", lambda: pipeline.use_attempt(ep, sid, attempt_no)):
+            st.rerun()
+
+    show_shot(shot, key=ep.episode_id, on_use=use)
+    if shot.status == "DROPPED" or not shot.attempts:
+        return
+
+    suggestion, _ = pipeline.suggested_fix(shot)
+    seconds = shot.spec.duration_seconds
+    label = ("What should this shot show instead? (the critic's suggestion is filled in; edit it freely)"
+             if suggestion else "See a problem? Say what this shot should show instead")
+    fix = st.text_input(label, suggestion, key=f"fix_{ep.episode_id}_{sid}_{len(shot.attempts)}",
+                        placeholder="for example: the note is already inside the box when the lid comes off")
+    cols = st.columns(3)
+    if cols[0].button(f"Fix this shot ({seconds}s of video)", key=f"fixgo_{sid}", type="primary",
+                      disabled=not (unlocked and fix.strip()),
+                      help="Makes the shot again with this instruction. Your instruction is also "
+                           "remembered as a rule for later shots and episodes."):
+        if _run("Generating and checking. This takes a minute or two.",
+                lambda: pipeline.fix_shot(ep, sid, fix)):
+            st.rerun()
+    if shot.status == "FLAGGED":
+        if cols[1].button("Accept as it is", key=f"ok_{sid}", disabled=shot.chosen_attempt is None):
+            if _run("Saving", lambda: pipeline.overrule(ep, sid)):
+                st.rerun()
+    if cols[2].button("Drop this shot", key=f"drop_{sid}"):
+        if _run("Saving", lambda: pipeline.drop(ep, sid)):
+            st.rerun()
 
 
 def _export_step(ep) -> None:

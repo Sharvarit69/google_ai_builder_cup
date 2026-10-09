@@ -52,6 +52,8 @@ def build_report(episode: Episode) -> dict:
         "creator_catches": sum(s["creator_catches"] for s in shots),
         "rules": [r.model_dump() for r in episode.canon.rules] if episode.canon else [],
         "observations_noted": sum(len(s["observations"]) for s in shots),
+        "major_observations": sum(1 for s in shots for o in s["observations"]
+                                  if o.get("severity") == "major"),
         "seeded_test": any(s["seeded"] for s in shots),
         "seconds_generated": episode.seconds_generated,
     }
@@ -74,7 +76,8 @@ def report_to_markdown(report: dict) -> str:
             f"- Shots accepted by the creator over the critic: {report['shots_overruled']}",
             f"- Problems the creator caught that the critic missed: {report.get('creator_catches', 0)}",
             f"- Rules learned from the creator: {len(report.get('rules', []))}",
-            f"- Other things the critic noticed (advisory): {report.get('observations_noted', 0)}",
+            f"- Other things the critic noticed (advisory): {report.get('observations_noted', 0)}, "
+            f"of which major: {report.get('major_observations', 0)}",
             f"- Shots dropped: {report['shots_dropped']}",
             f"- Seconds of video generated: {report['seconds_generated']}",
         ]
@@ -95,7 +98,9 @@ def report_to_markdown(report: dict) -> str:
                 f"expected {v['expected']}; observed {v['observed']}"
             )
         for o in s.get("observations", []):
-            lines.append(f"- Also noticed (advisory) at {o['timestamp_seconds']:.1f}s: {o['what']}")
+            lines.append(f"- Also noticed ({o.get('severity', 'minor')}, advisory) at "
+                         f"{o['timestamp_seconds']:.1f}s: {o['what']}"
+                         + (f" Suggested fix: {o['suggested_fix']}" if o.get("suggested_fix") else ""))
         lines.append("")
     if report.get("rules"):
         lines.append("## Rules learned from the creator")

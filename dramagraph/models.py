@@ -102,6 +102,8 @@ class Observation(BaseModel):
 
     what: str
     timestamp_seconds: float = 0.0
+    severity: Literal["major", "minor"] = "minor"   # major = a viewer would clearly notice
+    suggested_fix: str = ""                         # what the shot should show instead
 
 
 class CriticResult(BaseModel):
@@ -139,6 +141,7 @@ class Shot(BaseModel):
     chosen_attempt: Optional[int] = None
     status: ShotStatus = "PLANNED"
     creator_catches: int = 0  # problems the creator spotted that the critic missed
+    pinned_attempt: Optional[int] = None  # a clip the creator chose by hand
 
 
 class SeededError(BaseModel):

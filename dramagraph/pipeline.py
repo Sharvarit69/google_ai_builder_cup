@@ -43,7 +43,15 @@ def _check(episode, shot, attempt, check) -> None:
 
 
 def _settle(shot: Shot) -> None:
-    """Choose the best clip so far; the shot is accepted only if that clip passed."""
+    """Choose the clip to use. A clip the creator picked by hand always wins; otherwise
+    the best one so far, and the shot is accepted only if that clip passed."""
+    pinned = _attempt(shot, shot.pinned_attempt)
+    if pinned and pinned.clip_uri and not pinned.rejected:
+        passed = bool(pinned.critic and pinned.critic.decision == "ACCEPT")
+        shot.chosen_attempt = pinned.attempt_no
+        shot.status = "ACCEPTED" if passed else "OVERRULED"
+        return
+    shot.pinned_attempt = None
     best = _attempt(shot, pick_best_attempt(shot))
     shot.chosen_attempt = best.attempt_no if best else None
     passed = bool(best and best.critic and best.critic.decision == "ACCEPT")
@@ -189,20 +197,13 @@ def recheck(episode: Episode, on_progress: Progress = None, check=check_clip) ->
 def reject_and_fix(episode: Episode, shot_id: str, instruction: str,
                    generate=generator.generate_with_retries, check=check_clip,
                    ask=None) -> Episode:
-    """The creator saw a problem in a clip the critic passed. That clip is never used
-    again, the miss is put on record, and the shot is regenerated with their fix."""
+    """Kept for older callers: the creator rejects a passed clip. Same as fix_shot."""
     shot = _shot(episode, shot_id)
     if not instruction.strip():
         raise ValueError("Type what is wrong and what should be shown instead.")
-    current = _attempt(shot, shot.chosen_attempt)
-    if current is None:
+    if _attempt(shot, shot.chosen_attempt) is None:
         raise ValueError("There is no clip to reject for this shot.")
-    if ration_left() < shot.spec.duration_seconds:
-        raise ValueError("The Veo ration is used up, so the shot cannot be regenerated.")
-    current.rejected = True
-    shot.creator_catches += 1
-    learn(episode, shot_id, instruction, "creator_catch", ask)
-    return repair_with_instruction(episode, shot_id, instruction, generate, check)
+    return fix_shot(episode, shot_id, instruction, generate, check, ask)
 
 
 def learn(episode: Episode, shot_id: str, note: str, source: str, ask=None) -> bool:
@@ -217,11 +218,73 @@ def learn(episode: Episode, shot_id: str, note: str, source: str, ask=None) -> b
     return added
 
 
+def suggested_fix(shot: Shot) -> tuple[str, bool]:
+    """What to pre-fill in the fix box, and whether it only restates a built-in check.
+
+    A failed check comes first. Otherwise the most serious thing the critic noticed.
+    """
+    current = _attempt(shot, shot.chosen_attempt)
+    if current is None or current.critic is None:
+        return "", False
+    critic = current.critic
+    if critic.decision == "REGENERATE":
+        wanted = [v.expected.strip().rstrip(".") for v in critic.violations if v.expected.strip()]
+        wanted += [r.rule.strip().rstrip(".") for r in critic.rules if r.verdict == "mismatch"]
+        unique = list(dict.fromkeys(wanted))
+        if unique:
+            return ". ".join(unique) + ".", True
+    major = [o for o in critic.observations if o.severity == "major" and o.suggested_fix.strip()]
+    if major:
+        return major[0].suggested_fix.strip(), False
+    return "", False
+
+
+def fix_shot(episode: Episode, shot_id: str, instruction: str,
+             generate=generator.generate_with_retries, check=check_clip, ask=None) -> Episode:
+    """The one fix action. Regenerates the shot with the instruction.
+
+    If the creator is fixing a clip the critic had passed, that clip is set aside and
+    counted as a catch. Any instruction that goes beyond the built-in checks becomes a
+    rule the critic enforces from now on.
+    """
+    shot = _shot(episode, shot_id)
+    instruction = instruction.strip()
+    if not instruction:
+        raise ValueError("Say what should be shown, then press Fix.")
+    if ration_left() < shot.spec.duration_seconds:
+        raise ValueError("The Veo ration is used up, so the shot cannot be regenerated.")
+    prefill, restates_check = suggested_fix(shot)
+    current = _attempt(shot, shot.chosen_attempt)
+    if current is not None and shot.status in ("ACCEPTED", "OVERRULED"):
+        current.rejected = True
+        shot.creator_catches += 1
+    shot.pinned_attempt = None
+    if not (restates_check and instruction == prefill):
+        try:
+            learn(episode, shot_id, instruction, "creator_catch", ask)
+        except ValueError:
+            pass    # the episode already holds the maximum number of rules; still fix the shot
+    return repair_with_instruction(episode, shot_id, instruction, generate, check)
+
+
+def use_attempt(episode: Episode, shot_id: str, attempt_no: int) -> Episode:
+    """The creator picks a clip by hand. It is used even if the critic prefers another."""
+    shot = _shot(episode, shot_id)
+    picked = _attempt(shot, attempt_no)
+    if picked is None or not picked.clip_uri:
+        raise ValueError("That attempt has no clip.")
+    picked.rejected = False
+    shot.pinned_attempt = attempt_no
+    _settle(shot)
+    return finish(episode)
+
+
 def overrule(episode: Episode, shot_id: str) -> Episode:
     """Accept a clip the critic did not pass. Kept on record for the false-alarm count."""
     shot = _shot(episode, shot_id)
     if shot.chosen_attempt is None:
         raise ValueError("There is no clip to accept for this shot.")
+    shot.pinned_attempt = shot.chosen_attempt
     shot.status = "OVERRULED"
     return finish(episode)
 
