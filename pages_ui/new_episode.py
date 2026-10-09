@@ -240,11 +240,23 @@ def _generate_step(ep, started) -> None:
             show_shot(shot)
             sid = shot.spec.shot_id
             current = next((a for a in shot.attempts if a.attempt_no == shot.chosen_attempt), None)
-            for oi, o in enumerate(current.critic.observations if current and current.critic else []):
-                if st.button(f"Make this a rule: {o.what[:70]}", key=f"obs_{sid}_{oi}",
-                             help="The critic will check this from now on. Costs no video; "
-                                  "use Re-check to apply it to the clips you have."):
-                    if _run("Learning the rule", lambda: pipeline.learn(ep, sid, o.what, "observation")):
+            noticed = current.critic.observations if current and current.critic else []
+            for oi, o in enumerate(o for o in noticed if o.severity == "major"):
+                fix = o.suggested_fix.strip() or o.what
+                st.caption(f"For the major finding at {o.timestamp_seconds:.1f}s, you can:")
+                fx, rl = st.columns(2)
+                if fx.button(f"Regenerate with the suggested fix ({shot.spec.duration_seconds}s of video)",
+                             key=f"obsfix_{sid}_{oi}", disabled=not unlocked,
+                             help="Sets this clip aside and generates the shot again, asking for: " + fix):
+                    action = (pipeline.reject_and_fix if shot.status in ("ACCEPTED", "OVERRULED")
+                              else pipeline.repair_with_instruction)
+                    if _run("Generating and checking. This takes a minute or two.",
+                            lambda: action(ep, sid, fix)):
+                        st.rerun()
+                if rl.button("Always check for this (no video)", key=f"obs_{sid}_{oi}",
+                             help="Adds a rule saying what must be true: " + fix
+                                  + " Use Re-check to apply it to the clips you have."):
+                    if _run("Learning the rule", lambda: pipeline.learn(ep, sid, fix, "observation")):
                         st.rerun()
             if shot.status in ("ACCEPTED", "OVERRULED") and shot.chosen_attempt is not None:
                 with st.expander("I see a problem the critic missed"):

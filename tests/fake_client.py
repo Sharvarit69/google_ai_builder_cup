@@ -70,8 +70,12 @@ class FakeClient:
                     broken = b"glitch" in clip and "appears" in text
                     rules.append({"number": int(number), "verdict": "mismatch" if broken else "match",
                                   "observed": "a note popped into view" if broken else "holds"})
-            observations = ([{"what": "A sixth finger appears on her left hand", "timestamp_seconds": 3.0}]
-                            if b"extra finger" in clip else [])
+            observations = ([
+                {"what": "The desk lamp flickers once", "timestamp_seconds": 1.0, "severity": "minor",
+                 "suggested_fix": "The lamp gives steady light."},
+                {"what": "A sixth finger appears on her left hand", "timestamp_seconds": 3.0,
+                 "severity": "major", "suggested_fix": "Both hands have five fingers throughout."},
+            ] if b"extra finger" in clip else [])
             return NS(text=json.dumps({
                 "rules": rules, "observations": observations,
                 "seen": "a woman at a desk",

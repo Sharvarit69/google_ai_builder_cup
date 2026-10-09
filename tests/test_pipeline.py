@@ -455,11 +455,27 @@ def test_observations_are_advisory_and_reported(client):
     ep.shots[0].spec.action = "She guards the box. extra finger"     # lands in the fake clip
     pipeline.run_generation(ep)
     critic_result = ep.shots[0].attempts[0].critic
-    assert [o.what for o in critic_result.observations] == ["A sixth finger appears on her left hand"]
+    assert [(o.severity, o.what) for o in critic_result.observations] == [
+        ("major", "A sixth finger appears on her left hand"),      # most serious first
+        ("minor", "The desk lamp flickers once")]
+    assert critic_result.observations[0].suggested_fix == "Both hands have five fingers throughout."
     assert critic_result.decision == "ACCEPT" and ep.shots[0].status == "ACCEPTED"   # no paid repair
     assert ration.used() == 16
-    assert ep.report["observations_noted"] == 1
-    assert "Also noticed (advisory) at 3.0s: A sixth finger" in report_to_markdown(ep.report)
+    assert (ep.report["observations_noted"], ep.report["major_observations"]) == (2, 1)
+    text = report_to_markdown(ep.report)
+    assert "Also noticed (major, advisory) at 3.0s: A sixth finger" in text
+    assert "Suggested fix: Both hands have five fingers throughout." in text
+
+
+def test_fixing_from_a_suggestion_learns_the_correct_state_not_the_mistake(client):
+    ep = planned_episode(2)
+    ep.shots[0].spec.action = "She guards the box. extra finger"
+    pipeline.run_generation(ep)
+    fix = ep.shots[0].attempts[0].critic.observations[0].suggested_fix
+    pipeline.reject_and_fix(ep, "S1", fix)
+    rule = ep.canon.rules[0]
+    assert rule.text == "Both hands have five fingers throughout." and "sixth" not in rule.text
+    assert "FIX: Both hands have five fingers throughout." in ep.shots[0].attempts[-1].prompt
 
 
 def test_critic_prompt_asks_for_observations_and_knows_the_action(client):

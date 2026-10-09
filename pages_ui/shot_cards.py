@@ -36,8 +36,27 @@ def show_attempt(attempt: Attempt) -> None:
         for v in critic.violations:
             st.warning(f"{v.type} at {v.timestamp_seconds:.1f}s. Expected: {_clean(v.expected)}. "
                        f"Observed: {_clean(v.observed)}.")
-        for o in critic.observations:
-            st.info(f"Also noticed at {o.timestamp_seconds:.1f}s (advisory): {_clean(o.what)}.")
+        show_observations(critic.observations)
+
+
+def describe_observation(o) -> str:
+    text = f"**{'Major' if o.severity == 'major' else 'Minor'}** at {o.timestamp_seconds:.1f}s: {_clean(o.what)}."
+    if o.suggested_fix.strip():
+        text += f"  \nSuggested fix: {_clean(o.suggested_fix)}."
+    return text
+
+
+def show_observations(observations, skip_major: bool = False) -> None:
+    """Advisory findings. Minor ones are folded away so they do not bury the important ones."""
+    major = [o for o in observations if o.severity == "major"]
+    minor = [o for o in observations if o.severity != "major"]
+    if not skip_major:
+        for o in major:
+            st.info("Also noticed (advisory). " + describe_observation(o))
+    if minor:
+        with st.expander(f"{len(minor)} minor thing(s) also noticed"):
+            for o in minor:
+                st.write(describe_observation(o))
 
 
 def chosen(shot: Shot):
