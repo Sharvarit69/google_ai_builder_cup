@@ -38,7 +38,9 @@ def render() -> None:
         wardrobe = st.text_input("Wardrobe", "plain mustard-yellow kurta")
         location = st.text_input("Location", "office desk")
         time_of_day = st.text_input("Time of day", "daytime")
-        prop_name = st.text_input("Prop (leave empty for none)", "round steel lunch box")
+        prop_name = st.text_input("Prop (leave empty for none)", "steel lunch box")
+        prop_look = st.text_input("What the prop looks like (shape, parts, colour)",
+                                  "round single-tier stainless-steel tin with a flat lid")
         st.subheader("Prop state at the end of each clip")
         states = [
             st.text_input(f"Clip {i + 1}: {f.name}", "closed", key=f"state_{i}")
@@ -51,7 +53,7 @@ def render() -> None:
             st.error("Fix the problems above, then try again.")
         else:
             canon = make_canon(name, appearance, wardrobe, prop_name, states,
-                               location, time_of_day)
+                               location, time_of_day, prop_look)
             bar = st.progress(0.0, "Starting")
             try:
                 episode = run_check_only(

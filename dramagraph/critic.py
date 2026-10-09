@@ -15,7 +15,8 @@ CROSS_SHOT_NOTE = (
     "\nTwo videos are attached. The FIRST is the previous shot and is only for\n"
     "comparison. The SECOND is the shot to check; all verdicts above are about\n"
     "the second video. Also give a cross_shot verdict: is it the same person,\n"
-    "in the same clothes and the same place as the previous shot?\n"
+    "in the same clothes and the same place as the previous shot, and are the\n"
+    "props the same objects (same shape, parts and colour) as in the previous shot?\n"
 )
 NO_CROSS_SHOT_NOTE = "\nSet cross_shot to null.\n"
 
@@ -29,7 +30,7 @@ def build_prompt(spec: ShotSpec, canon: Canon, has_previous: bool = False) -> st
     prop_lines = []
     for p in canon.props:
         start, end = p.states_for(spec.shot_id)
-        line = f"{p.name} ({p.description})" if p.description else p.name
+        line = f"{p.name}. It looks like this: {p.description}" if p.description else p.name
         if end and start.strip().lower() == end.strip().lower():
             line += f". For the whole shot it must be: {end.upper()}"
         elif end:
@@ -45,15 +46,16 @@ def build_prompt(spec: ShotSpec, canon: Canon, has_previous: bool = False) -> st
         scene=scene,
         second_person_note=SECOND_PERSON_NOTE if spec.second_person else "",
         cross_shot_note=CROSS_SHOT_NOTE if has_previous else NO_CROSS_SHOT_NOTE,
+        prop_look_note="" if canon.props else "No prop is required, so set prop_look to null.",
     )
 
 
 def verdicts(result: CriticResult) -> dict[str, str]:
-    out = {
-        "wardrobe": result.wardrobe.verdict,
-        "prop_state": result.prop_state.verdict,
-        "scene": result.scene.verdict,
-    }
+    out = {"wardrobe": result.wardrobe.verdict}
+    if result.prop_look is not None:
+        out["prop_look"] = result.prop_look.verdict
+    out["prop_state"] = result.prop_state.verdict
+    out["scene"] = result.scene.verdict
     if result.cross_shot is not None:
         out["cross_shot"] = result.cross_shot.verdict
     return out
@@ -93,6 +95,8 @@ def check_clip(
     )
     if not previous_clip_path:
         result.cross_shot = None
+    if not canon.props:
+        result.prop_look = None
     for v in result.violations:
         v.timestamp_seconds = max(0.0, v.timestamp_seconds)
     result.decision = decide(result)  # the model's own decision is ignored

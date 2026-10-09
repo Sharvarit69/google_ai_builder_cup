@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 Verdict = Literal["match", "mismatch", "unclear"]
 Decision = Literal["ACCEPT", "REGENERATE", "REVIEW"]
-ViolationType = Literal["WARDROBE", "PROP_STATE", "SCENE", "CROSS_SHOT"]
+ViolationType = Literal["WARDROBE", "PROP_LOOK", "PROP_STATE", "SCENE", "CROSS_SHOT"]
 
 
 class Beat(BaseModel):
@@ -80,6 +80,7 @@ class Violation(BaseModel):
 class CriticResult(BaseModel):
     seen: str = ""
     wardrobe: CheckResult
+    prop_look: Optional[CheckResult] = None  # is it the same object? None if no prop
     prop_state: CheckResult
     scene: CheckResult
     cross_shot: Optional[CheckResult] = None  # None for the first shot

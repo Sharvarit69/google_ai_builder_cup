@@ -4,9 +4,9 @@ from datetime import datetime, timezone
 import streamlit as st
 
 from dramagraph import assembler, generator, pipeline, ration, storage
-from dramagraph.canon import build_canon, validate_reference
+from dramagraph.canon import MAX_PROPS, build_canon, validate_reference
 from dramagraph.config import get_settings
-from dramagraph.models import Episode, SeededError, Shot
+from dramagraph.models import Episode, Prop, SeededError, Shot
 from dramagraph.parser import parse_script
 from dramagraph.planner import MAX_SHOTS, apply_rules, plan_shots, replan
 from pages_ui.shot_cards import report_button, show_final, show_shot
@@ -98,17 +98,25 @@ def _details_step(ep, locked) -> None:
         wardrobe = st.text_input("Wardrobe", c.character.wardrobe)
         location = st.text_input("Location", c.location)
         time_of_day = st.text_input("Time of day", c.time_of_day)
-        states, remove = {}, {}
-        for pi, prop in enumerate(c.props):
-            st.markdown(f"**Prop: {prop.name}**")
+        states, remove, names, looks = {}, {}, {}, {}
+        slots = list(range(len(c.props))) + ([len(c.props)] if len(c.props) < MAX_PROPS else [])
+        for pi in slots:
+            prop = c.props[pi] if pi < len(c.props) else None
+            st.markdown(f"**Prop: {prop.name}**" if prop else "**Add a prop** (leave the name empty to skip)")
+            k = f"{ep.episode_id}_{pi}"
+            names[pi] = st.text_input("Prop name", prop.name if prop else "", key=f"pn_{k}")
+            looks[pi] = st.text_input(
+                "What it looks like: shape, number of parts, material, colour, size",
+                prop.description if prop else "", key=f"pd_{k}",
+                placeholder="round single-tier stainless-steel tin with a flat clip-on lid")
             cols = st.columns(len(ep.shots))
             for col, shot in zip(cols, ep.shots):
                 sid = shot.spec.shot_id
                 states[(pi, sid)] = col.text_input(
-                    f"At the end of shot {sid[1:]}", prop.state_by_shot.get(sid, ""),
-                    key=f"st_{ep.episode_id}_{pi}_{sid}")
-            remove[pi] = st.checkbox(f"Remove '{prop.name}' (stop checking it)",
-                                     key=f"rm_{ep.episode_id}_{pi}")
+                    f"At the end of shot {sid[1:]}", prop.state_by_shot.get(sid, "") if prop else "",
+                    key=f"st_{k}_{sid}")
+            if prop:
+                remove[pi] = st.checkbox(f"Remove '{prop.name}' (stop checking it)", key=f"rm_{k}")
         picture = st.file_uploader("Reference picture of the character (optional)",
                                    type=["png", "jpg", "jpeg"])
         consent = st.checkbox("This picture is AI-generated, or shows an adult who gave permission.")
@@ -120,12 +128,15 @@ def _details_step(ep, locked) -> None:
                 c.character.name, c.character.appearance = name.strip(), appearance.strip()
                 c.character.wardrobe = wardrobe.strip()
                 c.location, c.time_of_day = location.strip(), time_of_day.strip()
-                for (pi, sid), value in states.items():
-                    if value.strip():
-                        c.props[pi].state_by_shot[sid] = value.strip()
-                    else:
-                        c.props[pi].state_by_shot.pop(sid, None)
-                c.props = [p for pi, p in enumerate(c.props) if not remove.get(pi)]
+                kept = []
+                for pi in slots:
+                    if remove.get(pi) or not names[pi].strip():
+                        continue
+                    kept.append(Prop(
+                        name=names[pi].strip(), description=looks[pi].strip(),
+                        state_by_shot={sid: v.strip() for (qi, sid), v in states.items()
+                                       if qi == pi and v.strip()}))
+                c.props = kept
                 apply_rules([s.spec for s in ep.shots], c)
                 storage.save_episode(ep)
 

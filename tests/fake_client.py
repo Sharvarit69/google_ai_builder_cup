@@ -47,6 +47,8 @@ class FakeClient:
             clip_open = any(k in clip for k in (b"lid off", b"it is open", b"it is: open"))
             bad_prop = clip_open != ("must be: OPEN" in prompt)
             bad_wardrobe = b"red kurta" in clip
+            has_prop = "no specific prop required" not in prompt
+            bad_look = has_prop and b"square" in clip and "square" not in prompt.split("First describe")[0]
             check = lambda bad, seen: {"verdict": "mismatch" if bad else "match", "observed": seen}
             violations = []
             if bad_prop:
@@ -58,6 +60,7 @@ class FakeClient:
             return NS(text=json.dumps({
                 "seen": "a woman at a desk",
                 "wardrobe": check(bad_wardrobe, "red kurta" if bad_wardrobe else "yellow kurta"),
+                "prop_look": check(bad_look, "square box" if bad_look else "as described") if has_prop else None,
                 "prop_state": check(bad_prop, "open" if bad_prop else "as expected"),
                 "scene": check(False, "one person, desk, day"),
                 "cross_shot": check(False, "same person") if len(media) == 2 else None,
