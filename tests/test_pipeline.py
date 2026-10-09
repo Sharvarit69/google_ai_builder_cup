@@ -254,7 +254,7 @@ def test_shot_refused_every_time_ends_flagged_and_costs_nothing(client):
     assert len(s1.attempts) == 6 and all(a.error.startswith("REFUSED") for a in s1.attempts)
     assert s1.status == "FLAGGED" and s1.chosen_attempt is None and ration.used() == 0
     with pytest.raises(ValueError, match="no clip"):
-        pipeline.overrule(ep, "S1")
+        pipeline.overrule(ep, "S1")       # nothing was ever generated, so nothing to accept
     with pytest.raises(ValueError, match="no checked clip"):
         pipeline.auto_repair(ep, "S1")
     pipeline.drop(ep, "S1")
@@ -663,3 +663,55 @@ def test_accept_as_is_keeps_that_clip_through_a_recheck(client):
     kept = s1.chosen_attempt
     pipeline.recheck(ep, check=scripted_check([1]))
     assert (s1.chosen_attempt, s1.status) == (kept, "OVERRULED")
+
+
+# ---------- the creator never loses a clip they were willing to use ----------
+
+def test_a_fix_that_veo_refuses_gives_the_clip_back(client):
+    """Reported from a real run: after a failed fix the only clip could not be accepted."""
+    ep = planned_episode(2)
+    pipeline.run_generation(ep)
+    s2 = ep.shots[1]
+    client.refuse_next = 3                                  # the fix produces no clip at all
+    pipeline.fix_shot(ep, "S2", "her watch stays on her left wrist")
+    assert not s2.attempts[0].rejected and s2.creator_catches == 0
+    assert (s2.chosen_attempt, s2.status) == (1, "ACCEPTED") and ep.status == "READY"
+    assert ration.used() == 16
+
+
+def test_accept_as_it_is_works_when_no_clip_is_selected(client):
+    ep = planned_episode(1)
+    pipeline.run_generation(ep)
+    s1 = ep.shots[0]
+    s1.attempts[0].rejected = True          # the state older versions could leave behind
+    s1.chosen_attempt, s1.status = None, "FLAGGED"
+    pipeline.overrule(ep, "S1")
+    assert (s1.chosen_attempt, s1.pinned_attempt, s1.status) == (1, 1, "OVERRULED")
+    assert not s1.attempts[0].rejected and pipeline.can_export(ep) == (True, "")
+
+
+def test_a_dropped_shot_can_be_restored_and_then_accepted(client):
+    ep = planned_episode(2)
+    pipeline.run_generation(ep)
+    s2 = ep.shots[1]
+    s2.attempts[0].rejected = True
+    s2.chosen_attempt = None
+    pipeline.drop(ep, "S2")
+    assert s2.status == "DROPPED"
+
+    pipeline.restore(ep, "S2")
+    assert s2.status == "FLAGGED" and s2.chosen_attempt == 1 and ep.status == "NEEDS_REVIEW"
+    pipeline.overrule(ep, "S2")
+    assert s2.status == "OVERRULED" and ep.status == "READY"
+
+    untouched = ep.shots[0]
+    pipeline.restore(ep, "S1")              # restoring a shot that was never dropped changes nothing
+    assert untouched.status == "ACCEPTED"
+
+
+def test_restoring_a_good_shot_brings_it_straight_back(client):
+    ep = planned_episode(2)
+    pipeline.run_generation(ep)
+    pipeline.drop(ep, "S1")
+    pipeline.restore(ep, "S1")
+    assert ep.shots[0].status == "ACCEPTED" and ep.shots[0].chosen_attempt == 1

@@ -20,6 +20,10 @@ def _attempt(shot: Shot, attempt_no) -> Optional[Attempt]:
     return next((a for a in shot.attempts if a.attempt_no == attempt_no), None)
 
 
+def latest_clip(shot: Shot) -> Optional[Attempt]:
+    return next((a for a in reversed(shot.attempts) if a.clip_uri), None)
+
+
 def chosen_clip(shot: Shot) -> Optional[str]:
     a = _attempt(shot, shot.chosen_attempt)
     return a.clip_uri if a else None
@@ -258,13 +262,25 @@ def fix_shot(episode: Episode, shot_id: str, instruction: str,
     if current is not None and shot.status in ("ACCEPTED", "OVERRULED"):
         current.rejected = True
         shot.creator_catches += 1
-    shot.pinned_attempt = None
+    set_aside = current if current is not None and current.rejected else None
+    was_pinned, shot.pinned_attempt = shot.pinned_attempt, None
     if not (restates_check and instruction == prefill):
         try:
             learn(episode, shot_id, instruction, "creator_catch", ask)
         except ValueError:
             pass    # the episode already holds the maximum number of rules; still fix the shot
-    return repair_with_instruction(episode, shot_id, instruction, generate, check)
+    made_before = sum(1 for a in shot.attempts if a.clip_uri)
+    try:
+        repair_with_instruction(episode, shot_id, instruction, generate, check)
+    finally:
+        if sum(1 for a in shot.attempts if a.clip_uri) == made_before and set_aside is not None:
+            # Veo made nothing new, so the creator keeps the clip they had.
+            set_aside.rejected = False
+            shot.creator_catches -= 1
+            shot.pinned_attempt = was_pinned
+            _settle(shot)
+            finish(episode)
+    return episode
 
 
 def use_attempt(episode: Episode, shot_id: str, attempt_no: int) -> Episode:
@@ -282,10 +298,23 @@ def use_attempt(episode: Episode, shot_id: str, attempt_no: int) -> Episode:
 def overrule(episode: Episode, shot_id: str) -> Episode:
     """Accept a clip the critic did not pass. Kept on record for the false-alarm count."""
     shot = _shot(episode, shot_id)
-    if shot.chosen_attempt is None:
+    target = _attempt(shot, shot.chosen_attempt) or latest_clip(shot)
+    if target is None:
         raise ValueError("There is no clip to accept for this shot.")
-    shot.pinned_attempt = shot.chosen_attempt
+    target.rejected = False
+    shot.pinned_attempt = shot.chosen_attempt = target.attempt_no
     shot.status = "OVERRULED"
+    return finish(episode)
+
+
+def restore(episode: Episode, shot_id: str) -> Episode:
+    """Bring back a dropped shot. Nothing is regenerated."""
+    shot = _shot(episode, shot_id)
+    if shot.status != "DROPPED":
+        return episode
+    _settle(shot)
+    if shot.chosen_attempt is None and latest_clip(shot) is not None:
+        shot.chosen_attempt = latest_clip(shot).attempt_no    # shown, awaiting a decision
     return finish(episode)
 
 
