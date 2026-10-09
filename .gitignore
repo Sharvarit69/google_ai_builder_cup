@@ -5,3 +5,4 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .ipynb_checkpoints/
+eval/eval_results.json
