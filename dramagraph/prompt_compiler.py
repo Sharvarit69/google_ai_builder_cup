@@ -16,18 +16,21 @@ def compile_prompt(spec: ShotSpec, canon: Canon, fix_notes: str = "",
         + (f" {', '.join(c.accessories)}." if c.accessories else ""),
     ]
     for p in canon.props:
-        state = p.state_by_shot.get(spec.shot_id, "")
+        start, end = p.states_for(spec.shot_id)
         if seed and seed.kind == "prop":
-            state = seed.value
+            start = end = seed.value
         text = f"PROP: {p.name}. {p.description}".strip()
-        if state:
-            text += f" In this shot it is: {state}."
+        if end and start.strip().lower() == end.strip().lower():
+            text += f" In this shot it is: {end}."
+        elif end:
+            text += f" At the start of the shot it is {start}. By the end of the shot it is {end}."
         lines.append(text)
     lines.append(f"LOCATION: {canon.location}, {canon.time_of_day}.")
     lines.append(f"CAMERA: vertical 9:16, {spec.shot_type}, {spec.camera_motion}. One continuous take.")
     if spec.second_person:
         lines.append("A second person appears as hands only, never a face or body.")
     lines.append("DO NOT SHOW: other people's faces or bodies, text on screen, camera cuts.")
+    lines.append("AUDIO: quiet room sound only. No speech, no voice-over, no music.")
     if fix_notes.strip():
         lines.append(fix_notes.strip())
     return "\n".join(lines)

@@ -75,7 +75,21 @@ def report_button(episode: Episode) -> None:
     )
 
 
+def show_final(episode: Episode) -> None:
+    """The stitched video, if it has been exported."""
+    uri = episode.final_video_uri
+    if not uri or not storage.exists(uri):
+        return
+    data = storage.load_bytes(uri)
+    left, _ = st.columns([1, 2])
+    with left:
+        st.video(data)
+        st.download_button("Download video", data, file_name=f"{episode.episode_id}.mp4",
+                           mime="video/mp4", key=f"mp4_{episode.episode_id}")
+
+
 def show_episode(episode: Episode) -> None:
+    show_final(episode)
     for shot in episode.shots:
         with st.container(border=True):
             show_shot(shot)

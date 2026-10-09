@@ -12,7 +12,8 @@ RATION_EMPTY = "Veo ration used up"
 
 
 class GenerationRefused(Exception):
-    """Veo declined to make the clip (usually a safety filter). Retrying won't help."""
+    """Veo declined to make the clip. Veo does not charge for these, and they are
+    often temporary (for example an audio problem), so a retry can succeed."""
 
 
 class RequestRejected(Exception):
@@ -101,6 +102,7 @@ def generate_clip(episode: Episode, shot: Shot, prompt: str, kind: str,
         ration.refund(seconds, "request rejected before generation")
         attempt.error = f"Request rejected: {error}"[:500]
     except GenerationRefused as error:
+        ration.refund(seconds, "Veo declined; not charged")
         attempt.error = f"REFUSED: {error}"[:500]
     except Exception as error:
         attempt.error = str(error)[:500]
@@ -109,12 +111,10 @@ def generate_clip(episode: Episode, shot: Shot, prompt: str, kind: str,
 
 def generate_with_retries(episode: Episode, shot: Shot, prompt: str, kind: str,
                           seeded: bool = False, veo=call_veo) -> Attempt:
-    """Try, then retry up to MAX_GEN_RETRIES times. Refusals and an empty ration stop early."""
+    """Try, then retry up to MAX_GEN_RETRIES times. An empty ration stops early."""
     attempt = None
     for _ in range(1 + get_settings().max_gen_retries):
         attempt = generate_clip(episode, shot, prompt, kind, seeded, veo)
         if attempt.clip_uri or attempt.error == RATION_EMPTY:
-            break
-        if attempt.error and attempt.error.startswith("REFUSED"):
             break
     return attempt

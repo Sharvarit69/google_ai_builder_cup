@@ -7,9 +7,13 @@ say, invent a simple, specific choice. The character must be an adult.
 
 Give:
 - name, appearance (hair, age range, build), wardrobe, accessories
-- props: each important object, a short description, and "states": its
-  visible state in each of the shots listed below, in order (one state per
-  shot, for example "closed", "closed", "open and empty")
+- props: ONLY objects the character handles and the story depends on. At
+  most two, usually one. Do not list clocks, notes, signs, furniture or
+  anything in the background. For each prop give a short description and
+  "states": its visible state at the END of each shot listed below, in order
+  (one state per shot). A state is one to four words that can be seen at a
+  glance, for example "closed", "closed", "open and empty". Never put
+  position, readable text, numbers or clock times in a state.
 - location and time_of_day
 
 SCRIPT:

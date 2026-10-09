@@ -3,13 +3,13 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from dramagraph import generator, pipeline, ration, storage
+from dramagraph import assembler, generator, pipeline, ration, storage
 from dramagraph.canon import build_canon, validate_reference
 from dramagraph.config import get_settings
 from dramagraph.models import Episode, SeededError, Shot
 from dramagraph.parser import parse_script
 from dramagraph.planner import MAX_SHOTS, apply_rules, plan_shots, replan
-from pages_ui.shot_cards import report_button, show_shot
+from pages_ui.shot_cards import report_button, show_final, show_shot
 
 SAMPLE = """Priya sits at her office desk in the morning, guarding her closed steel lunch box.
 She glances around the office and pulls the lunch box closer.
@@ -85,7 +85,12 @@ def _beats_step(ep, locked) -> None:
 
 def _details_step(ep, locked) -> None:
     st.subheader("3. Character, prop and setting")
-    st.caption("These stay fixed in every shot. The critic checks each clip against them.")
+    st.caption("The critic checks each clip against exactly these details, so keep them few and "
+               "simple. Video models cannot reliably draw clock times or readable writing; "
+               "leave those out. A prop state is what you see at the end of that shot.")
+    if locked:
+        st.caption("You can still edit these after generating, then use "
+                   "'Re-check existing clips' below. That costs no video.")
     c = ep.canon
     with st.form("details"):
         name = st.text_input("Character name", c.character.name)
@@ -93,18 +98,21 @@ def _details_step(ep, locked) -> None:
         wardrobe = st.text_input("Wardrobe", c.character.wardrobe)
         location = st.text_input("Location", c.location)
         time_of_day = st.text_input("Time of day", c.time_of_day)
-        states = {}
+        states, remove = {}, {}
         for pi, prop in enumerate(c.props):
             st.markdown(f"**Prop: {prop.name}**")
             cols = st.columns(len(ep.shots))
             for col, shot in zip(cols, ep.shots):
                 sid = shot.spec.shot_id
                 states[(pi, sid)] = col.text_input(
-                    f"State in shot {sid[1:]}", prop.state_by_shot.get(sid, ""), key=f"st_{pi}_{sid}")
+                    f"At the end of shot {sid[1:]}", prop.state_by_shot.get(sid, ""),
+                    key=f"st_{ep.episode_id}_{pi}_{sid}")
+            remove[pi] = st.checkbox(f"Remove '{prop.name}' (stop checking it)",
+                                     key=f"rm_{ep.episode_id}_{pi}")
         picture = st.file_uploader("Reference picture of the character (optional)",
                                    type=["png", "jpg", "jpeg"])
         consent = st.checkbox("This picture is AI-generated, or shows an adult who gave permission.")
-        if st.form_submit_button("Save details", disabled=locked):
+        if st.form_submit_button("Save details"):
             def work():
                 if picture is not None:
                     validate_reference(picture.getvalue(), picture.name, consent)
@@ -117,6 +125,7 @@ def _details_step(ep, locked) -> None:
                         c.props[pi].state_by_shot[sid] = value.strip()
                     else:
                         c.props[pi].state_by_shot.pop(sid, None)
+                c.props = [p for pi, p in enumerate(c.props) if not remove.get(pi)]
                 apply_rules([s.spec for s in ep.shots], c)
                 storage.save_episode(ep)
 
@@ -191,15 +200,29 @@ def _generate_step(ep, started) -> None:
 
     if not any(s.attempts for s in ep.shots):
         return
+    if st.button("Re-check existing clips (no new video)",
+                 help="Runs the critic again on the clips you already have, using the "
+                      "current details. Use it after editing section 3."):
+        bar = st.progress(0.0, "Re-checking")
+        try:
+            pipeline.recheck(ep, on_progress=lambda m, f: bar.progress(min(f, 1.0), m))
+        except Exception as error:
+            st.error(f"Re-check stopped: {error}")
+        st.rerun()
     for shot in ep.shots:
         with st.container(border=True):
             show_shot(shot)
             if shot.status != "FLAGGED":
                 continue
             sid = shot.spec.shot_id
-            a, b, c = st.columns(3)
+            a, r, b, c = st.columns(4)
             if a.button("Accept anyway", key=f"ok_{sid}", disabled=shot.chosen_attempt is None):
                 if _run("Saving", lambda: pipeline.overrule(ep, sid)):
+                    st.rerun()
+            if r.button("Repair automatically", key=f"auto_{sid}",
+                        disabled=not unlocked or shot.chosen_attempt is None):
+                if _run("Generating and checking. This takes a minute or two.",
+                        lambda: pipeline.auto_repair(ep, sid)):
                     st.rerun()
             if c.button("Drop shot", key=f"drop_{sid}"):
                 if _run("Saving", lambda: pipeline.drop(ep, sid)):
@@ -212,12 +235,36 @@ def _generate_step(ep, started) -> None:
                         lambda: pipeline.repair_with_instruction(ep, sid, fix)):
                     st.rerun()
 
-    ok, reason = pipeline.can_export(ep)
-    if ok:
-        st.success("Every shot is settled. Stitching into one video comes in the next update.")
-    else:
-        st.info(reason)
+    _export_step(ep)
     report_button(ep)
+
+
+def _export_step(ep) -> None:
+    st.subheader("6. Export")
+    ok, reason = pipeline.can_export(ep)
+    if not ok:
+        st.info(reason)
+        return
+    kept = [s for s in ep.shots if s.status != "DROPPED"]
+    beats = {b.beat_id: b for b in ep.beats}
+    with st.form("export"):
+        st.caption("Captions are burned into the video. Leave one empty for no caption.")
+        texts = {
+            s.spec.beat_id: st.text_input(f"Caption for shot {s.spec.shot_id[1:]}",
+                                          beats[s.spec.beat_id].caption if s.spec.beat_id in beats else "",
+                                          key=f"cap_{ep.episode_id}_{s.spec.shot_id}")
+            for s in kept
+        }
+        if st.form_submit_button("Export video", type="primary"):
+            def work():
+                for beat_id, text in texts.items():
+                    if beat_id in beats:
+                        beats[beat_id].caption = text.strip()
+                assembler.assemble(ep)
+
+            if _run("Stitching the shots into one video", work):
+                st.rerun()
+    show_final(ep)
 
 
 def render() -> None:

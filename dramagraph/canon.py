@@ -8,6 +8,7 @@ from .models import Beat, Canon, Character, Prop
 
 PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MAX_PROPS = 2  # more than this and no video model can satisfy every check
 
 
 class PropDraft(BaseModel):
@@ -33,7 +34,7 @@ def build_canon(script_lines: list[str], picked: list[Beat], ask=llm.ask_json) -
     )
     d = ask(purpose="build_canon", prompt=prompt, schema=CanonDraft)
     props = []
-    for p in d.props:
+    for p in d.props[:MAX_PROPS]:
         states = {}
         for i in range(len(picked)):
             # if the model gave too few states, carry the last one forward

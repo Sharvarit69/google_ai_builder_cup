@@ -1,8 +1,8 @@
 """A stand-in for the Gemini client so tests run the real code with no API key.
 
 Fake Veo returns the prompt text as the "video". The fake critic reads that text
-and reports a prop mismatch if it mentions "lid off", a wardrobe mismatch if it
-mentions "red kurta", and a match otherwise.
+to decide whether the box is open in the clip, compares that with what the critic
+prompt expects, and reports a wardrobe mismatch if the clip mentions "red kurta".
 """
 import json
 import re
@@ -44,7 +44,8 @@ class FakeClient:
                  "action": f"action {i+1}", "second_person_hands": False} for i in range(n)]}))
         if "continuity checker" in prompt:
             clip = media[-1].data
-            bad_prop = b"lid off" in clip
+            clip_open = any(k in clip for k in (b"lid off", b"it is open", b"it is: open"))
+            bad_prop = clip_open != ("must be: OPEN" in prompt)
             bad_wardrobe = b"red kurta" in clip
             check = lambda bad, seen: {"verdict": "mismatch" if bad else "match", "observed": seen}
             violations = []
