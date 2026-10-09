@@ -1,4 +1,5 @@
 """Builds the QA report from what is stored in the episode. Nothing is invented here."""
+from .critic import lines as critic_lines
 from .critic import verdicts
 from .models import Episode
 
@@ -21,9 +22,12 @@ def build_report(episode: Episode) -> dict:
                 "attempts": len(shot.attempts),
                 "decision": critic.decision if critic else None,
                 "verdicts": verdicts(critic) if critic else {},
+                "checks": critic_lines(critic) if critic else [],
+                "observations": [o.model_dump() for o in critic.observations] if critic else [],
                 "violations": [v.model_dump() for v in critic.violations] if critic else [],
                 "error": attempt.error if attempt else None,
                 "seeded": any(a.seeded for a in shot.attempts),
+                "creator_catches": shot.creator_catches,
                 "had_error": any(a.critic and a.critic.decision == "REGENERATE"
                                  for a in shot.attempts),
                 "repairs": sum(1 for a in shot.attempts
@@ -45,6 +49,9 @@ def build_report(episode: Episode) -> dict:
             1 for s in shots if s["had_error"] and s["status"] == "ACCEPTED"),
         "shots_overruled": sum(1 for s in shots if s["status"] == "OVERRULED"),
         "shots_dropped": sum(1 for s in shots if s["status"] == "DROPPED"),
+        "creator_catches": sum(s["creator_catches"] for s in shots),
+        "rules": [r.model_dump() for r in episode.canon.rules] if episode.canon else [],
+        "observations_noted": sum(len(s["observations"]) for s in shots),
         "seeded_test": any(s["seeded"] for s in shots),
         "seconds_generated": episode.seconds_generated,
     }
@@ -65,6 +72,9 @@ def report_to_markdown(report: dict) -> str:
             f"- Shots where an error was caught: {report['shots_with_errors_found']}",
             f"- Shots fixed by automatic repair: {report['shots_fixed_by_repair']}",
             f"- Shots accepted by the creator over the critic: {report['shots_overruled']}",
+            f"- Problems the creator caught that the critic missed: {report.get('creator_catches', 0)}",
+            f"- Rules learned from the creator: {len(report.get('rules', []))}",
+            f"- Other things the critic noticed (advisory): {report.get('observations_noted', 0)}",
             f"- Shots dropped: {report['shots_dropped']}",
             f"- Seconds of video generated: {report['seconds_generated']}",
         ]
@@ -77,12 +87,20 @@ def report_to_markdown(report: dict) -> str:
                      + (" (seeded test error)" if s["seeded"] else ""))
         if s["error"]:
             lines.append(f"- Could not be checked: {s['error']}")
-        for name, verdict in s["verdicts"].items():
-            lines.append(f"- {name}: {verdict}")
+        for c in s.get("checks") or [{"label": k, "verdict": v} for k, v in s["verdicts"].items()]:
+            lines.append(f"- {c['label']}: {c['verdict']}")
         for v in s["violations"]:
             lines.append(
                 f"- VIOLATION {v['type']} at {v['timestamp_seconds']:.1f}s: "
                 f"expected {v['expected']}; observed {v['observed']}"
             )
+        for o in s.get("observations", []):
+            lines.append(f"- Also noticed (advisory) at {o['timestamp_seconds']:.1f}s: {o['what']}")
+        lines.append("")
+    if report.get("rules"):
+        lines.append("## Rules learned from the creator")
+        for r in report["rules"]:
+            scope = "every shot" if not r["shot_ids"] else ", ".join(r["shot_ids"])
+            lines.append(f"- {r['text']} (applies to {scope})")
         lines.append("")
     return "\n".join(lines)

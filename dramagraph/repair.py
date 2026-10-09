@@ -13,6 +13,10 @@ def auto_fix_notes(result: CriticResult) -> str:
     for v in result.violations:
         lines.append(f"FIX, most important: {v.expected.rstrip('.')}. "
                      "The previous attempt got this wrong.")
+    for r in result.rules:
+        if r.verdict == "mismatch":
+            lines.append(f"FIX, most important: {r.rule.rstrip('.')}. "
+                         "The previous attempt got this wrong.")
     if not lines:
         for name, verdict in verdicts(result).items():
             if verdict == "mismatch":
@@ -28,13 +32,17 @@ def repairs_done(shot: Shot) -> int:
 
 
 def pick_best_attempt(shot: Shot):
-    """Fewest mismatches, then fewest unclear verdicts, then the latest attempt."""
+    """Fewest mismatches, then fewest unclear verdicts, then the latest attempt.
+
+    Clips the creator rejected are never chosen, whatever the critic said.
+    """
     scored = []
-    for a in shot.attempts:
+    usable = [a for a in shot.attempts if not a.rejected]
+    for a in usable:
         if a.clip_uri and a.critic:
             values = list(verdicts(a.critic).values())
             scored.append((values.count("mismatch"), values.count("unclear"), -a.attempt_no, a))
     if scored:
         return min(scored, key=lambda t: t[:3])[3].attempt_no
-    with_clip = [a.attempt_no for a in shot.attempts if a.clip_uri]
+    with_clip = [a.attempt_no for a in usable if a.clip_uri]
     return with_clip[-1] if with_clip else None

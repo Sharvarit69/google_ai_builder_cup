@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 Verdict = Literal["match", "mismatch", "unclear"]
 Decision = Literal["ACCEPT", "REGENERATE", "REVIEW"]
-ViolationType = Literal["WARDROBE", "PROP_LOOK", "PROP_STATE", "SCENE", "CROSS_SHOT"]
+ViolationType = Literal["WARDROBE", "PROP_LOOK", "PROP_STATE", "SCENE", "CROSS_SHOT", "RULE"]
 
 
 class Beat(BaseModel):
@@ -46,11 +46,24 @@ class Prop(BaseModel):
         return start, end
 
 
+class LearnedRule(BaseModel):
+    """A check that came from a person, not from the built-in list."""
+
+    text: str                                             # one sentence that must be true
+    shot_ids: list[str] = Field(default_factory=list)     # empty means every shot
+    source: Literal["creator_catch", "observation", "manual", "library"] = "manual"
+    from_note: str = ""                                   # what the creator originally wrote
+
+
 class Canon(BaseModel):
     character: Character
     props: list[Prop] = Field(default_factory=list)
     location: str
     time_of_day: str
+    rules: list[LearnedRule] = Field(default_factory=list)
+
+    def rules_for(self, shot_id: str) -> list[LearnedRule]:
+        return [r for r in self.rules if not r.shot_ids or shot_id in r.shot_ids]
 
 
 class ShotSpec(BaseModel):
@@ -77,6 +90,20 @@ class Violation(BaseModel):
     observed: str
 
 
+class RuleCheck(BaseModel):
+    number: int                  # position in the list of rules given to the critic
+    rule: str = ""               # filled in by code, not by the model
+    verdict: Verdict
+    observed: str = ""
+
+
+class Observation(BaseModel):
+    """Something odd the critic noticed that no check covers. Advisory only."""
+
+    what: str
+    timestamp_seconds: float = 0.0
+
+
 class CriticResult(BaseModel):
     seen: str = ""
     wardrobe: CheckResult
@@ -84,7 +111,9 @@ class CriticResult(BaseModel):
     prop_state: CheckResult
     scene: CheckResult
     cross_shot: Optional[CheckResult] = None  # None for the first shot
+    rules: list[RuleCheck] = Field(default_factory=list)
     violations: list[Violation] = Field(default_factory=list)
+    observations: list[Observation] = Field(default_factory=list)
     decision: Optional[Decision] = None  # set by code, never by the model
 
 
@@ -96,6 +125,7 @@ class Attempt(BaseModel):
     critic: Optional[CriticResult] = None
     error: Optional[str] = None
     seeded: bool = False  # True if an error was planted on purpose for a test
+    rejected: bool = False  # True if the creator rejected a clip the critic had passed
 
 
 ShotStatus = Literal[
@@ -108,6 +138,7 @@ class Shot(BaseModel):
     attempts: list[Attempt] = Field(default_factory=list)
     chosen_attempt: Optional[int] = None
     status: ShotStatus = "PLANNED"
+    creator_catches: int = 0  # problems the creator spotted that the critic missed
 
 
 class SeededError(BaseModel):

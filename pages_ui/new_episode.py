@@ -3,10 +3,10 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from dramagraph import assembler, generator, pipeline, ration, storage
+from dramagraph import assembler, generator, learning, pipeline, ration, storage
 from dramagraph.canon import MAX_PROPS, build_canon, validate_reference
 from dramagraph.config import get_settings
-from dramagraph.models import Episode, Prop, SeededError, Shot
+from dramagraph.models import Episode, LearnedRule, Prop, SeededError, Shot
 from dramagraph.parser import parse_script
 from dramagraph.planner import MAX_SHOTS, apply_rules, plan_shots, replan
 from pages_ui.shot_cards import report_button, show_final, show_shot
@@ -117,6 +117,16 @@ def _details_step(ep, locked) -> None:
                     key=f"st_{k}_{sid}")
             if prop:
                 remove[pi] = st.checkbox(f"Remove '{prop.name}' (stop checking it)", key=f"rm_{k}")
+        st.markdown("**Rules learned from your catches**")
+        st.caption("Checks that came from you, not from the built-in list. The critic applies "
+                   "them from now on, and general ones carry over to new episodes.")
+        drop_rule = {}
+        for ri, rule in enumerate(c.rules):
+            scope = "every shot" if not rule.shot_ids else "shot " + ", ".join(i[1:] for i in rule.shot_ids)
+            drop_rule[ri] = st.checkbox(f"Remove: {rule.text} ({scope})", key=f"rr_{ep.episode_id}_{ri}")
+        new_rule = st.text_input("Add a rule yourself (applies to every shot)",
+                                 key=f"nr_{ep.episode_id}",
+                                 placeholder="Her watch stays on her left wrist")
         picture = st.file_uploader("Reference picture of the character (optional)",
                                    type=["png", "jpg", "jpeg"])
         consent = st.checkbox("This picture is AI-generated, or shows an adult who gave permission.")
@@ -137,6 +147,11 @@ def _details_step(ep, locked) -> None:
                         state_by_shot={sid: v.strip() for (qi, sid), v in states.items()
                                        if qi == pi and v.strip()}))
                 c.props = kept
+                for ri in sorted((i for i, gone in drop_rule.items() if gone), reverse=True):
+                    learning.forget(c.rules[ri].text)
+                    del c.rules[ri]
+                if new_rule.strip():
+                    learning.add_rule(c, LearnedRule(text=new_rule.strip(), source="manual"))
                 apply_rules([s.spec for s in ep.shots], c)
                 storage.save_episode(ep)
 
@@ -223,9 +238,29 @@ def _generate_step(ep, started) -> None:
     for shot in ep.shots:
         with st.container(border=True):
             show_shot(shot)
+            sid = shot.spec.shot_id
+            current = next((a for a in shot.attempts if a.attempt_no == shot.chosen_attempt), None)
+            for oi, o in enumerate(current.critic.observations if current and current.critic else []):
+                if st.button(f"Make this a rule: {o.what[:70]}", key=f"obs_{sid}_{oi}",
+                             help="The critic will check this from now on. Costs no video; "
+                                  "use Re-check to apply it to the clips you have."):
+                    if _run("Learning the rule", lambda: pipeline.learn(ep, sid, o.what, "observation")):
+                        st.rerun()
+            if shot.status in ("ACCEPTED", "OVERRULED") and shot.chosen_attempt is not None:
+                with st.expander("I see a problem the critic missed"):
+                    st.caption("This clip is set aside, your note becomes a rule the critic checks "
+                               "from now on, and the shot is generated again "
+                               f"({shot.spec.duration_seconds} seconds of video).")
+                    seen = st.text_input(
+                        "What is wrong, and what should be shown instead", key=f"miss_{sid}",
+                        placeholder="the note pops into view; it should already be lying in the box")
+                    if st.button("Reject this clip and regenerate", key=f"rej_{sid}",
+                                 disabled=not (unlocked and seen.strip())):
+                        if _run("Generating and checking. This takes a minute or two.",
+                                lambda: pipeline.reject_and_fix(ep, sid, seen)):
+                            st.rerun()
             if shot.status != "FLAGGED":
                 continue
-            sid = shot.spec.shot_id
             a, r, b, c = st.columns(4)
             if a.button("Accept anyway", key=f"ok_{sid}", disabled=shot.chosen_attempt is None):
                 if _run("Saving", lambda: pipeline.overrule(ep, sid)):

@@ -42,6 +42,12 @@ class FakeClient:
             return NS(text=json.dumps({"shots": [
                 {"shot_type": "medium shot", "camera_motion": "static",
                  "action": f"action {i+1}", "second_person_hands": False} for i in range(n)]}))
+        if "Turn their" in prompt:      # learning a rule from a creator's note
+            note = prompt.split("THE CREATOR'S NOTE:")[1].split("Return only JSON")[0].strip()
+            general = any(k in note.lower() for k in ("appear", "pops", "vanish", "always"))
+            text = ("No object appears or vanishes without someone causing it."
+                    if "appear" in note.lower() or "pops" in note.lower() else note[0].upper() + note[1:])
+            return NS(text=json.dumps({"text": text, "applies_to_all_shots": general}))
         if "continuity checker" in prompt:
             clip = media[-1].data
             clip_open = any(k in clip for k in (b"lid off", b"it is open", b"it is: open"))
@@ -57,7 +63,17 @@ class FakeClient:
             if bad_wardrobe:
                 violations.append({"type": "WARDROBE", "timestamp_seconds": 0,
                                    "expected": "yellow kurta", "observed": "red kurta"})
+            rules = []
+            if "RULES THE CREATOR ADDED" in prompt:
+                block = prompt.split("RULES THE CREATOR ADDED")[1].split("For every mismatch")[0]
+                for number, text in re.findall(r"^(\d+)\. (.+)$", block, re.M):
+                    broken = b"glitch" in clip and "appears" in text
+                    rules.append({"number": int(number), "verdict": "mismatch" if broken else "match",
+                                  "observed": "a note popped into view" if broken else "holds"})
+            observations = ([{"what": "A sixth finger appears on her left hand", "timestamp_seconds": 3.0}]
+                            if b"extra finger" in clip else [])
             return NS(text=json.dumps({
+                "rules": rules, "observations": observations,
                 "seen": "a woman at a desk",
                 "wardrobe": check(bad_wardrobe, "red kurta" if bad_wardrobe else "yellow kurta"),
                 "prop_look": check(bad_look, "square box" if bad_look else "as described") if has_prop else None,

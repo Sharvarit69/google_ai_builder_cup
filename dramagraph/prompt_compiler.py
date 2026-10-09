@@ -34,6 +34,8 @@ def compile_prompt(spec: ShotSpec, canon: Canon, fix_notes: str = "",
         lines.append("A second person appears as hands only, never a face or body.")
     lines.append("DO NOT SHOW: other people's faces or bodies, text on screen, camera cuts.")
     lines.append("AUDIO: quiet room sound only. No speech, no voice-over, no music.")
+    for rule in canon.rules_for(spec.shot_id):
+        lines.append(f"ALSO REQUIRED: {rule.text}")
     if fix_notes.strip():
         lines.append(fix_notes.strip())
     return "\n".join(lines)
