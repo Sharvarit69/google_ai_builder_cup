@@ -1,0 +1,6 @@
+streamlit
+google-genai
+google-cloud-storage
+pydantic>=2
+python-dotenv
+pytest
