@@ -366,3 +366,33 @@ def test_pick_best_attempt_prefers_fewest_mismatches(client):
     ep2.episode_id = "ep2"
     pipeline.run_generation(ep2, check=scripted_check([1, 1, 3]))
     assert ep2.shots[0].chosen_attempt == 2      # the last attempt was worse, so it is not used
+
+
+def test_prop_that_changes_shape_is_caught_and_repaired(client):
+    """Reported from a real run: the lunch box was round in one shot and square in another."""
+    from dramagraph.critic import build_prompt, verdicts
+    ep = planned_episode(2)
+    prop = ep.canon.props[0]
+    prop.description = "round single-tier stainless-steel tin with a flat lid"
+    spec = ep.shots[0].spec
+    assert "It looks like this: round single-tier" in build_prompt(spec, ep.canon)
+    assert "props the same objects" in build_prompt(spec, ep.canon, has_previous=True)
+    veo_prompt = compile_prompt(spec, ep.canon)
+    assert "It looks exactly like this: round single-tier stainless-steel tin with a flat lid." in veo_prompt
+    assert "same object in every shot" in veo_prompt
+
+    ep.seeded_error = SeededError(shot_id="S2", kind="prop", value="closed, but it is a square box")
+    pipeline.run_generation(ep)
+    s2 = ep.shots[1]
+    first = s2.attempts[0].critic
+    assert verdicts(first)["prop_look"] == "mismatch" and first.decision == "REGENERATE"
+    assert s2.status == "ACCEPTED" and s2.chosen_attempt == 2
+
+
+def test_no_prop_means_no_prop_look_check(client):
+    from dramagraph.critic import build_prompt, verdicts
+    ep = planned_episode(1)
+    ep.canon.props = []
+    assert "set prop_look to null" in build_prompt(ep.shots[0].spec, ep.canon)
+    pipeline.run_generation(ep)
+    assert "prop_look" not in verdicts(ep.shots[0].attempts[0].critic)

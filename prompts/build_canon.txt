@@ -9,7 +9,11 @@ Give:
 - name, appearance (hair, age range, build), wardrobe, accessories
 - props: ONLY objects the character handles and the story depends on. At
   most two, usually one. Do not list clocks, notes, signs, furniture or
-  anything in the background. For each prop give a short description and
+  anything in the background. For each prop give a "description" that fixes
+  what the object looks like so it can be drawn the same way every time:
+  shape, number of parts or tiers, material, colour and rough size (for
+  example "round single-tier stainless-steel tin with a flat clip-on lid,
+  about the size of a small cake tin"). Also give
   "states": its visible state at the END of each shot listed below, in order
   (one state per shot). A state is one to four words that can be seen at a
   glance, for example "closed", "closed", "open and empty". Never put

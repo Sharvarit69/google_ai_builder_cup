@@ -19,7 +19,10 @@ def compile_prompt(spec: ShotSpec, canon: Canon, fix_notes: str = "",
         start, end = p.states_for(spec.shot_id)
         if seed and seed.kind == "prop":
             start = end = seed.value
-        text = f"PROP: {p.name}. {p.description}".strip()
+        text = f"PROP: {p.name}."
+        if p.description.strip():
+            text += (f" It looks exactly like this: {p.description.strip().rstrip('.')}."
+                     " It is this same object in every shot.")
         if end and start.strip().lower() == end.strip().lower():
             text += f" In this shot it is: {end}."
         elif end:

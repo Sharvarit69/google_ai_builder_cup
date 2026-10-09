@@ -11,7 +11,8 @@ STATUS = {"ACCEPTED": "✅ Accepted", "FLAGGED": "⚠️ Needs your decision",
           "OVERRULED": "☑️ Accepted by you over the critic", "DROPPED": "🗑️ Dropped",
           "SKIPPED": "⏭️ Not generated yet", "PLANNED": "Planned", "GENERATING": "Generating"}
 MARK = {"match": "✅", "mismatch": "❌", "unclear": "⚠️"}
-LABEL = {"wardrobe": "Wardrobe", "prop_state": "Prop", "scene": "Scene",
+LABEL = {"wardrobe": "Wardrobe", "prop_look": "Prop appearance", "prop_state": "Prop state",
+         "scene": "Scene",
          "cross_shot": "Matches previous clip"}
 
 

@@ -14,13 +14,19 @@ Use "unclear" only when the item is hidden, blurred or out of frame.
 If you can see it and it agrees, the verdict is "match".
 If a required prop is not in the video at all, prop_state is "mismatch".
 
+prop_look asks whether each prop is the object described: the same shape,
+the same number of parts or tiers, the same material and colour. A round
+single-tier tin and a square box, or a stacked three-tier carrier, are
+different objects, so that is a "mismatch". Small differences in size or
+shine are fine. {prop_look_note}
+
 Judge only the items listed under EXPECTED. Do not mark a mismatch for the
 exact position of an object (on the desk or in her lap), for background
 objects, for the time shown on a clock, or for writing that is unreadable.
 If the person is visibly a different person, or wears different clothes,
 wardrobe is "mismatch".
 
-For every mismatch add one violation. Its type must be WARDROBE,
+For every mismatch add one violation. Its type must be WARDROBE, PROP_LOOK,
 PROP_STATE, SCENE or CROSS_SHOT. Give the second it first appears, what
 was expected and what you observed. If nothing is wrong, violations is
 an empty list.

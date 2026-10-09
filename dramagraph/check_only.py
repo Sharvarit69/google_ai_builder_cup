@@ -11,14 +11,15 @@ from .qa_report import build_report
 MAX_CLIPS = 4
 
 
-def make_canon(name, appearance, wardrobe, prop_name, prop_states, location, time_of_day):
+def make_canon(name, appearance, wardrobe, prop_name, prop_states, location, time_of_day,
+               prop_description=""):
     """prop_states is one expected state per clip, in clip order."""
     props = []
     if prop_name.strip():
         props.append(
             Prop(
                 name=prop_name.strip(),
-                description="",
+                description=prop_description.strip(),
                 state_by_shot={
                     f"S{i + 1}": s.strip() for i, s in enumerate(prop_states) if s.strip()
                 },
