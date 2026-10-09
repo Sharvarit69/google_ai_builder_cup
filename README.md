@@ -9,7 +9,7 @@ shots that fail. It can also check clips made elsewhere.
 
 ## Status
 
-Foundations only: settings, data model, storage and the Gemini wrapper.
+Check-only mode works: upload up to four clips, describe what should be true, and get a continuity report. Script planning, Veo generation and repair are next.
 
 ## Run locally
 
