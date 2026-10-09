@@ -1,0 +1,17 @@
+Plan one video shot for each story beat below, in the same order. Each shot
+is a single continuous take of about {seconds} seconds with one on-screen
+character, filmed vertically.
+
+For each shot give:
+- shot_type: for example "medium shot", "close-up of hands and desk"
+- camera_motion: for example "static", "slow push-in"
+- action: one or two sentences of what the character visibly does. Do not
+  describe clothing or prop states; those are added automatically.
+- second_person_hands: true only if another person's hands appear.
+
+CHARACTER AND SETTING
+{canon}
+
+BEATS
+{beats}
+{instruction}

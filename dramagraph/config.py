@@ -27,10 +27,10 @@ class Settings:
 def get_settings() -> Settings:
     env = os.environ.get
     return Settings(
-        gemini_api_key=env("GEMINI_API_KEY", ""),
-        gen_passcode=env("GEN_PASSCODE", ""),
+        gemini_api_key=env("GEMINI_API_KEY", "").strip(),
+        gen_passcode=env("GEN_PASSCODE", "").strip(),
         gcs_bucket=env("GCS_BUCKET", ""),
-        text_model=env("TEXT_MODEL", ""),
+        text_model=env("TEXT_MODEL", "") or env("VIDEO_UNDERSTANDING_MODEL", ""),
         video_understanding_model=env("VIDEO_UNDERSTANDING_MODEL", ""),
         veo_model=env("VEO_MODEL", ""),
         veo_budget_seconds=int(env("VEO_BUDGET_SECONDS", "200")),

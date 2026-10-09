@@ -1,0 +1,14 @@
+Split this short video script into story beats. A beat is one distinct
+moment where something happens or changes.
+
+For each beat give:
+- beat_id: B1, B2, ... in order
+- script_lines: the line numbers it covers
+- action: one sentence saying what is seen on screen
+- caption: at most 12 words taken from the script, to show as on-screen text
+- props_needed: physical objects that matter in this beat
+- needs_second_person: true only if a second person's face or body must be
+  fully visible. A note, a voice, or only someone's hands does not count.
+
+SCRIPT (numbered lines):
+{script}

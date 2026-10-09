@@ -5,7 +5,7 @@ from pages_ui.shot_cards import show_episode
 
 
 def render() -> None:
-    st.header("Saved checks")
+    st.header("Saved")
     rows = storage.list_episodes()
     if not rows:
         st.info("Nothing saved yet.")

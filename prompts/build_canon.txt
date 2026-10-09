@@ -1,0 +1,19 @@
+From this script, write the fixed visual details for a short video with ONE
+on-screen character. These details must stay the same in every shot.
+
+Be plain and specific so each detail can be checked by eye: write
+"plain mustard-yellow kurta", never "casual clothes". If the script does not
+say, invent a simple, specific choice. The character must be an adult.
+
+Give:
+- name, appearance (hair, age range, build), wardrobe, accessories
+- props: each important object, a short description, and "states": its
+  visible state in each of the shots listed below, in order (one state per
+  shot, for example "closed", "closed", "open and empty")
+- location and time_of_day
+
+SCRIPT:
+{script}
+
+THE SHOTS, IN ORDER:
+{beats}

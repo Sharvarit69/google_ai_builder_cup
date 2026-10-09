@@ -79,6 +79,7 @@ class Attempt(BaseModel):
     clip_uri: Optional[str] = None
     critic: Optional[CriticResult] = None
     error: Optional[str] = None
+    seeded: bool = False  # True if an error was planted on purpose for a test
 
 
 ShotStatus = Literal[
@@ -91,6 +92,14 @@ class Shot(BaseModel):
     attempts: list[Attempt] = Field(default_factory=list)
     chosen_attempt: Optional[int] = None
     status: ShotStatus = "PLANNED"
+
+
+class SeededError(BaseModel):
+    """A deliberate mistake planted in one shot's first prompt, to test the critic."""
+
+    shot_id: str
+    kind: Literal["prop", "wardrobe"]
+    value: str  # what the first prompt should wrongly ask for
 
 
 EpisodeStatus = Literal[
@@ -112,3 +121,4 @@ class Episode(BaseModel):
     final_video_uri: Optional[str] = None
     report: Optional[dict] = None
     seconds_generated: int = 0
+    seeded_error: Optional[SeededError] = None

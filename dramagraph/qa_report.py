@@ -23,6 +23,11 @@ def build_report(episode: Episode) -> dict:
                 "verdicts": verdicts(critic) if critic else {},
                 "violations": [v.model_dump() for v in critic.violations] if critic else [],
                 "error": attempt.error if attempt else None,
+                "seeded": any(a.seeded for a in shot.attempts),
+                "had_error": any(a.critic and a.critic.decision == "REGENERATE"
+                                 for a in shot.attempts),
+                "repairs": sum(1 for a in shot.attempts
+                               if a.kind in ("AUTO_REPAIR", "CUSTOM_REPAIR") and a.clip_uri),
             }
         )
     with_errors = [s for s in shots if s["violations"]]
@@ -35,6 +40,12 @@ def build_report(episode: Episode) -> dict:
         "clips_with_errors": len(with_errors),
         "violations_found": sum(len(s["violations"]) for s in shots),
         "needs_review": sum(1 for s in shots if s["decision"] == "REVIEW"),
+        "shots_with_errors_found": sum(1 for s in shots if s["had_error"]),
+        "shots_fixed_by_repair": sum(
+            1 for s in shots if s["had_error"] and s["status"] == "ACCEPTED"),
+        "shots_overruled": sum(1 for s in shots if s["status"] == "OVERRULED"),
+        "shots_dropped": sum(1 for s in shots if s["status"] == "DROPPED"),
+        "seeded_test": any(s["seeded"] for s in shots),
         "seconds_generated": episode.seconds_generated,
     }
 
@@ -48,10 +59,22 @@ def report_to_markdown(report: dict) -> str:
         f"- Clips with errors: {report['clips_with_errors']}",
         f"- Violations found: {report['violations_found']}",
         f"- Clips needing human review: {report['needs_review']}",
-        "",
     ]
+    if report["mode"] == "GENERATE":
+        lines += [
+            f"- Shots where an error was caught: {report['shots_with_errors_found']}",
+            f"- Shots fixed by automatic repair: {report['shots_fixed_by_repair']}",
+            f"- Shots accepted by the creator over the critic: {report['shots_overruled']}",
+            f"- Shots dropped: {report['shots_dropped']}",
+            f"- Seconds of video generated: {report['seconds_generated']}",
+        ]
+        if report["seeded_test"]:
+            lines.append("- Note: one error in this episode was planted on purpose as a test.")
+    lines.append("")
     for s in report["shots"]:
-        lines.append(f"## {s['shot_id']}: {s['decision'] or s['status']}")
+        lines.append(f"## {s['shot_id']}: {s['status']}"
+                     + (f" after {s['repairs']} repair(s)" if s["repairs"] else "")
+                     + (" (seeded test error)" if s["seeded"] else ""))
         if s["error"]:
             lines.append(f"- Could not be checked: {s['error']}")
         for name, verdict in s["verdicts"].items():
