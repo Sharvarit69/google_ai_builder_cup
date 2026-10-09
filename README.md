@@ -9,7 +9,7 @@ shots that fail. It can also check clips made elsewhere.
 
 ## Status
 
-Check-only mode works: upload up to four clips, describe what should be true, and get a continuity report. Script planning, Veo generation and repair are next.
+Working: script to story beats, character and prop details, shot plan, Veo generation with a spending cap, continuity checks, automatic repair of failed shots, and a check-only mode for clips made elsewhere. Stitching the final video is next.
 
 ## Run locally
 
