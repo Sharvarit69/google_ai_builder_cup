@@ -28,13 +28,17 @@ def repairs_done(shot: Shot) -> int:
 
 
 def pick_best_attempt(shot: Shot):
-    """Fewest mismatches, then fewest unclear verdicts, then the latest attempt."""
+    """Fewest mismatches, then fewest unclear verdicts, then the latest attempt.
+
+    Clips the creator rejected are never chosen, whatever the critic said.
+    """
     scored = []
-    for a in shot.attempts:
+    usable = [a for a in shot.attempts if not a.rejected]
+    for a in usable:
         if a.clip_uri and a.critic:
             values = list(verdicts(a.critic).values())
             scored.append((values.count("mismatch"), values.count("unclear"), -a.attempt_no, a))
     if scored:
         return min(scored, key=lambda t: t[:3])[3].attempt_no
-    with_clip = [a.attempt_no for a in shot.attempts if a.clip_uri]
+    with_clip = [a.attempt_no for a in usable if a.clip_uri]
     return with_clip[-1] if with_clip else None

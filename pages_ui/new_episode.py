@@ -223,9 +223,21 @@ def _generate_step(ep, started) -> None:
     for shot in ep.shots:
         with st.container(border=True):
             show_shot(shot)
+            sid = shot.spec.shot_id
+            if shot.status in ("ACCEPTED", "OVERRULED") and shot.chosen_attempt is not None:
+                with st.expander("I see a problem the critic missed"):
+                    st.caption("This clip is set aside, your catch goes in the report, and the "
+                               f"shot is generated again ({shot.spec.duration_seconds} seconds of video).")
+                    seen = st.text_input(
+                        "What is wrong, and what should be shown instead", key=f"miss_{sid}",
+                        placeholder="the note pops into view; it should already be lying in the box")
+                    if st.button("Reject this clip and regenerate", key=f"rej_{sid}",
+                                 disabled=not (unlocked and seen.strip())):
+                        if _run("Generating and checking. This takes a minute or two.",
+                                lambda: pipeline.reject_and_fix(ep, sid, seen)):
+                            st.rerun()
             if shot.status != "FLAGGED":
                 continue
-            sid = shot.spec.shot_id
             a, r, b, c = st.columns(4)
             if a.button("Accept anyway", key=f"ok_{sid}", disabled=shot.chosen_attempt is None):
                 if _run("Saving", lambda: pipeline.overrule(ep, sid)):

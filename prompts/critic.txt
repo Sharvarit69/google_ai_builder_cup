@@ -20,7 +20,13 @@ single-tier tin and a square box, or a stacked three-tier carrier, are
 different objects, so that is a "mismatch". Small differences in size or
 shine are fine. {prop_look_note}
 
-Judge only the items listed under EXPECTED. Do not mark a mismatch for the
+Also watch for glitches within the shot: an object or person that appears
+out of nowhere, vanishes, or turns into something else without anyone
+causing it. Something being taken out of a container or picked up is fine.
+If you see such a glitch, scene is "mismatch" and you add a SCENE violation
+saying what appeared or vanished and at which second.
+
+Otherwise judge only the items listed under EXPECTED. Do not mark a mismatch for the
 exact position of an object (on the desk or in her lap), for background
 objects, for the time shown on a clock, or for writing that is unreadable.
 If the person is visibly a different person, or wears different clothes,

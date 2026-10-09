@@ -96,6 +96,7 @@ class Attempt(BaseModel):
     critic: Optional[CriticResult] = None
     error: Optional[str] = None
     seeded: bool = False  # True if an error was planted on purpose for a test
+    rejected: bool = False  # True if the creator rejected a clip the critic had passed
 
 
 ShotStatus = Literal[
@@ -108,6 +109,7 @@ class Shot(BaseModel):
     attempts: list[Attempt] = Field(default_factory=list)
     chosen_attempt: Optional[int] = None
     status: ShotStatus = "PLANNED"
+    creator_catches: int = 0  # problems the creator spotted that the critic missed
 
 
 class SeededError(BaseModel):

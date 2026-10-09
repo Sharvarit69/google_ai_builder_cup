@@ -197,7 +197,7 @@ def test_repair_that_never_works_is_flagged_then_overruled(client, monkeypatch):
     assert len(s1.attempts) == 3 and s1.status == "FLAGGED" and s1.chosen_attempt == 3
     assert ep.status == "NEEDS_REVIEW" and not pipeline.can_export(ep)[0]
     with pytest.raises(ValueError, match="all its repair attempts"):
-        pipeline.repair_with_instruction(ep, "S1", "keep the lid on")
+        pipeline.auto_repair(ep, "S1")
     pipeline.overrule(ep, "S1")
     assert s1.status == "OVERRULED" and ep.status == "READY"
     assert build_report(ep)["shots_overruled"] == 1
@@ -396,3 +396,53 @@ def test_no_prop_means_no_prop_look_check(client):
     assert "set prop_look to null" in build_prompt(ep.shots[0].spec, ep.canon)
     pipeline.run_generation(ep)
     assert "prop_look" not in verdicts(ep.shots[0].attempts[0].critic)
+
+
+def test_creator_rejects_a_clip_the_critic_passed(client):
+    """Reported from a real run: a note popped into view and the critic had accepted it."""
+    ep = planned_episode(2)
+    pipeline.run_generation(ep)
+    storage.save_bytes(assembler_final := "episodes/ep1/final.mp4", b"old export")
+    ep.final_video_uri = assembler_final
+    s2 = ep.shots[1]
+    assert s2.status == "ACCEPTED" and s2.chosen_attempt == 1
+    with pytest.raises(ValueError):
+        pipeline.reject_and_fix(ep, "S2", "  ")
+
+    pipeline.reject_and_fix(ep, "S2", "the note must already be inside the box")
+    assert s2.attempts[0].rejected and s2.creator_catches == 1
+    assert s2.chosen_attempt == 2 and s2.status == "ACCEPTED" and s2.attempts[1].kind == "CUSTOM_REPAIR"
+    assert "FIX: the note must already be inside the box" in s2.attempts[1].prompt
+    assert ep.final_video_uri is None                      # the old export is out of date
+    assert ep.report["creator_catches"] == 1
+    assert "caught that the critic missed: 1" in report_to_markdown(ep.report)
+    assert ration.used() == 24
+
+
+def test_rejected_clip_is_never_chosen_again(client):
+    ep = planned_episode(1)
+    pipeline.run_generation(ep)
+    # the replacement comes back worse than the clip the creator rejected
+    pipeline.reject_and_fix(ep, "S1", "fix it", check=scripted_check([2]))
+    s1 = ep.shots[0]
+    assert s1.chosen_attempt == 2 and s1.status == "FLAGGED"
+    pipeline.recheck(ep)                                   # even after a re-check
+    assert s1.attempts[0].critic.decision == "ACCEPT" and s1.attempts[0].rejected
+    assert s1.chosen_attempt == 2
+
+
+def test_creator_fix_is_not_limited_by_the_automatic_repair_cap(client):
+    ep = planned_episode(1)
+    pipeline.run_generation(ep, check=scripted_check([1]))     # uses both automatic repairs
+    assert repair.repairs_done(ep.shots[0]) == 2
+    pipeline.repair_with_instruction(ep, "S1", "keep the lid on")
+    assert len(ep.shots[0].attempts) == 4 and ep.shots[0].status == "ACCEPTED"
+
+
+def test_creator_cannot_reject_when_the_ration_is_empty(client, monkeypatch):
+    ep = planned_episode(1)
+    pipeline.run_generation(ep)
+    monkeypatch.setenv("VEO_BUDGET_SECONDS", "8")
+    with pytest.raises(ValueError, match="ration is used up"):
+        pipeline.reject_and_fix(ep, "S1", "fix it")
+    assert not ep.shots[0].attempts[0].rejected and ep.shots[0].status == "ACCEPTED"

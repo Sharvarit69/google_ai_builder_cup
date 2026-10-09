@@ -24,6 +24,7 @@ def build_report(episode: Episode) -> dict:
                 "violations": [v.model_dump() for v in critic.violations] if critic else [],
                 "error": attempt.error if attempt else None,
                 "seeded": any(a.seeded for a in shot.attempts),
+                "creator_catches": shot.creator_catches,
                 "had_error": any(a.critic and a.critic.decision == "REGENERATE"
                                  for a in shot.attempts),
                 "repairs": sum(1 for a in shot.attempts
@@ -45,6 +46,7 @@ def build_report(episode: Episode) -> dict:
             1 for s in shots if s["had_error"] and s["status"] == "ACCEPTED"),
         "shots_overruled": sum(1 for s in shots if s["status"] == "OVERRULED"),
         "shots_dropped": sum(1 for s in shots if s["status"] == "DROPPED"),
+        "creator_catches": sum(s["creator_catches"] for s in shots),
         "seeded_test": any(s["seeded"] for s in shots),
         "seconds_generated": episode.seconds_generated,
     }
@@ -65,6 +67,7 @@ def report_to_markdown(report: dict) -> str:
             f"- Shots where an error was caught: {report['shots_with_errors_found']}",
             f"- Shots fixed by automatic repair: {report['shots_fixed_by_repair']}",
             f"- Shots accepted by the creator over the critic: {report['shots_overruled']}",
+            f"- Problems the creator caught that the critic missed: {report.get('creator_catches', 0)}",
             f"- Shots dropped: {report['shots_dropped']}",
             f"- Seconds of video generated: {report['seconds_generated']}",
         ]

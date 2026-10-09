@@ -1,7 +1,7 @@
 """Runs the shots in order: generate, check, repair. Saves after every step."""
 from typing import Callable, Optional
 
-from . import generator, storage
+from . import generator, ration, storage
 from .config import get_settings
 from .critic import check_clip
 from .models import Attempt, Episode, Shot
@@ -9,6 +9,10 @@ from .prompt_compiler import compile_prompt
 from .repair import auto_fix_notes, pick_best_attempt, repairs_done
 
 DONE = ("ACCEPTED", "OVERRULED", "DROPPED")
+
+
+def ration_left() -> int:
+    return ration.remaining()
 Progress = Optional[Callable[[str, float], None]]
 
 
@@ -86,6 +90,7 @@ def finish(episode: Episode) -> Episode:
     from .qa_report import build_report
 
     episode.status = "READY" if all(s.status in DONE for s in episode.shots) else "NEEDS_REVIEW"
+    episode.final_video_uri = None      # any change makes an earlier export out of date
     episode.report = build_report(episode)
     storage.save_episode(episode)
     return episode
@@ -129,12 +134,11 @@ def _shot(episode: Episode, shot_id: str) -> Shot:
 
 def repair_with_instruction(episode: Episode, shot_id: str, instruction: str,
                             generate=generator.generate_with_retries, check=check_clip) -> Episode:
-    """The creator's own fix. It counts as one of the allowed repair attempts."""
+    """The creator's own fix. The automatic repair limit does not apply, because the
+    creator is choosing to spend the seconds; the Veo ration is still the hard cap."""
     shot = _shot(episode, shot_id)
     if not instruction.strip():
         raise ValueError("Type what should be fixed.")
-    if repairs_done(shot) >= get_settings().max_repairs:
-        raise ValueError("This shot has used all its repair attempts. Accept it or drop it.")
     notes = f"FIX: {instruction.strip()}\nKeep everything else the same."
     prompt = compile_prompt(shot.spec, episode.canon, notes)
     attempt = _generate_and_check(episode, shot, prompt, "CUSTOM_REPAIR", False, generate, check)
@@ -180,6 +184,23 @@ def recheck(episode: Episode, on_progress: Progress = None, check=check_clip) ->
     if on_progress:
         on_progress("Done", 1.0)
     return finish(episode)
+
+
+def reject_and_fix(episode: Episode, shot_id: str, instruction: str,
+                   generate=generator.generate_with_retries, check=check_clip) -> Episode:
+    """The creator saw a problem in a clip the critic passed. That clip is never used
+    again, the miss is put on record, and the shot is regenerated with their fix."""
+    shot = _shot(episode, shot_id)
+    if not instruction.strip():
+        raise ValueError("Type what is wrong and what should be shown instead.")
+    current = _attempt(shot, shot.chosen_attempt)
+    if current is None:
+        raise ValueError("There is no clip to reject for this shot.")
+    if ration_left() < shot.spec.duration_seconds:
+        raise ValueError("The Veo ration is used up, so the shot cannot be regenerated.")
+    current.rejected = True
+    shot.creator_catches += 1
+    return repair_with_instruction(episode, shot_id, instruction, generate, check)
 
 
 def overrule(episode: Episode, shot_id: str) -> Episode:
