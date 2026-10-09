@@ -2,7 +2,7 @@
 import streamlit as st
 
 from dramagraph import storage
-from dramagraph.critic import verdicts
+from dramagraph.critic import lines as critic_lines
 from dramagraph.models import Attempt, Episode, Shot
 from dramagraph.qa_report import build_report, report_to_markdown
 
@@ -11,9 +11,6 @@ STATUS = {"ACCEPTED": "✅ Accepted", "FLAGGED": "⚠️ Needs your decision",
           "OVERRULED": "☑️ Accepted by you over the critic", "DROPPED": "🗑️ Dropped",
           "SKIPPED": "⏭️ Not generated yet", "PLANNED": "Planned", "GENERATING": "Generating"}
 MARK = {"match": "✅", "mismatch": "❌", "unclear": "⚠️"}
-LABEL = {"wardrobe": "Wardrobe", "prop_look": "Prop appearance", "prop_state": "Prop state",
-         "scene": "Scene",
-         "cross_shot": "Matches previous clip"}
 
 
 def _clean(text: str) -> str:
@@ -34,11 +31,13 @@ def show_attempt(attempt: Attempt) -> None:
             return
         critic = attempt.critic
         st.markdown(BADGE.get(critic.decision, critic.decision or ""))
-        for name, verdict in verdicts(critic).items():
-            st.write(f"{MARK[verdict]} {LABEL[name]}: {getattr(critic, name).observed}")
+        for row in critic_lines(critic):
+            st.write(f"{MARK[row['verdict']]} {row['label']}: {row['observed']}")
         for v in critic.violations:
             st.warning(f"{v.type} at {v.timestamp_seconds:.1f}s. Expected: {_clean(v.expected)}. "
                        f"Observed: {_clean(v.observed)}.")
+        for o in critic.observations:
+            st.info(f"Also noticed at {o.timestamp_seconds:.1f}s (advisory): {_clean(o.what)}.")
 
 
 def chosen(shot: Shot):

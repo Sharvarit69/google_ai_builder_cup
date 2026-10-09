@@ -13,6 +13,10 @@ def auto_fix_notes(result: CriticResult) -> str:
     for v in result.violations:
         lines.append(f"FIX, most important: {v.expected.rstrip('.')}. "
                      "The previous attempt got this wrong.")
+    for r in result.rules:
+        if r.verdict == "mismatch":
+            lines.append(f"FIX, most important: {r.rule.rstrip('.')}. "
+                         "The previous attempt got this wrong.")
     if not lines:
         for name, verdict in verdicts(result).items():
             if verdict == "mismatch":

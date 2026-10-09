@@ -1,7 +1,7 @@
 import pytest
 
 from dramagraph import canon as canon_mod
-from dramagraph import generator, llm, parser, pipeline, planner, ration, repair, storage
+from dramagraph import generator, learning, llm, parser, pipeline, planner, ration, repair, storage
 from dramagraph.models import Episode, SeededError, Shot
 from dramagraph.prompt_compiler import compile_prompt
 from dramagraph.qa_report import build_report, report_to_markdown
@@ -446,3 +446,122 @@ def test_creator_cannot_reject_when_the_ration_is_empty(client, monkeypatch):
     with pytest.raises(ValueError, match="ration is used up"):
         pipeline.reject_and_fix(ep, "S1", "fix it")
     assert not ep.shots[0].attempts[0].rejected and ep.shots[0].status == "ACCEPTED"
+
+
+# ---------- layer 2: open observations ----------
+
+def test_observations_are_advisory_and_reported(client):
+    ep = planned_episode(2)
+    ep.shots[0].spec.action = "She guards the box. extra finger"     # lands in the fake clip
+    pipeline.run_generation(ep)
+    critic_result = ep.shots[0].attempts[0].critic
+    assert [o.what for o in critic_result.observations] == ["A sixth finger appears on her left hand"]
+    assert critic_result.decision == "ACCEPT" and ep.shots[0].status == "ACCEPTED"   # no paid repair
+    assert ration.used() == 16
+    assert ep.report["observations_noted"] == 1
+    assert "Also noticed (advisory) at 3.0s: A sixth finger" in report_to_markdown(ep.report)
+
+
+def test_critic_prompt_asks_for_observations_and_knows_the_action(client):
+    from dramagraph.critic import build_prompt
+    ep = planned_episode(1)
+    prompt = build_prompt(ep.shots[0].spec, ep.canon)
+    assert "as a script supervisor" in prompt and "This shot is meant to show: action 1" in prompt
+    assert 'so "rules" is an empty list' in prompt and "glitch" not in prompt
+
+
+# ---------- layer 3: rules learned from the creator ----------
+
+def test_creator_catch_becomes_a_rule_for_every_shot_and_future_episodes(client):
+    from dramagraph.critic import build_prompt
+    ep = planned_episode(2)
+    pipeline.run_generation(ep)
+    pipeline.reject_and_fix(ep, "S2", "the note pops into view from nowhere")
+
+    rule = ep.canon.rules[0]
+    assert rule.text == "No object appears or vanishes without someone causing it."
+    assert rule.shot_ids == [] and rule.source == "creator_catch" and "pops into view" in rule.from_note
+    # the critic now checks it in every shot, and Veo is told about it
+    assert "1. No object appears or vanishes" in build_prompt(ep.shots[0].spec, ep.canon)
+    assert "ALSO REQUIRED: No object appears or vanishes" in ep.shots[1].attempts[-1].prompt
+    checked = ep.shots[1].attempts[-1].critic.rules
+    assert [(r.number, r.rule, r.verdict) for r in checked] == [(1, rule.text, "match")]
+    assert "Rules learned from the creator: 1" in report_to_markdown(ep.report)
+    assert "applies to every shot" in report_to_markdown(ep.report)
+
+    # a brand new episode starts with what this one taught
+    assert [r.text for r in learning.library()] == [rule.text]
+    fresh = planned_episode(1)
+    assert [(r.text, r.source) for r in fresh.canon.rules] == [(rule.text, "library")]
+
+
+def test_a_broken_rule_triggers_repair_with_the_rule_as_the_fix(client):
+    ep = planned_episode(2)
+    pipeline.learn(ep, "S1", "things pops in from nowhere", "manual")
+    ep.seeded_error = SeededError(shot_id="S1", kind="wardrobe", value="plain mustard-yellow kurta, glitch")
+    pipeline.run_generation(ep)
+    s1 = ep.shots[0]
+    first = s1.attempts[0].critic
+    assert first.rules[0].verdict == "mismatch" and first.decision == "REGENERATE"
+    assert "FIX, most important: No object appears or vanishes without someone causing it." in s1.attempts[1].prompt
+    assert s1.status == "ACCEPTED" and s1.chosen_attempt == 2
+
+
+def test_shot_specific_note_only_applies_to_that_shot(client):
+    from dramagraph.critic import build_prompt
+    ep = planned_episode(2)
+    assert pipeline.learn(ep, "S2", "the lid ends up flat on the desk", "observation") is True
+    assert pipeline.learn(ep, "S2", "the lid ends up flat on the desk", "observation") is False   # no duplicate
+    rule = ep.canon.rules[0]
+    assert rule.shot_ids == ["S2"] and rule.text == "The lid ends up flat on the desk"
+    assert "RULES THE CREATOR ADDED" not in build_prompt(ep.shots[0].spec, ep.canon)
+    assert "1. The lid ends up flat on the desk" in build_prompt(ep.shots[1].spec, ep.canon)
+    assert learning.library() == []                 # shot-specific rules are not kept for other episodes
+
+
+def test_learning_falls_back_to_the_creators_own_words(client):
+    def broken(**kw):
+        raise RuntimeError("model unavailable")
+    ep = planned_episode(1)
+    pipeline.learn(ep, "S1", "her watch must stay on her left wrist", "manual", ask=broken)
+    rule = ep.canon.rules[0]
+    assert rule.text == "her watch must stay on her left wrist" and rule.shot_ids == ["S1"]
+
+
+def test_promoting_an_observation_then_rechecking_costs_no_video(client):
+    ep = planned_episode(2)
+    pipeline.run_generation(ep)
+    used = ration.used()
+    pipeline.learn(ep, "S1", "an object appears from nowhere", "observation")
+    pipeline.recheck(ep)
+    assert all(len(s.attempts[0].critic.rules) == 1 for s in ep.shots) and ration.used() == used
+
+
+def test_critic_fills_in_rules_the_model_skipped(client, monkeypatch):
+    from dramagraph import critic
+    from dramagraph.models import CheckResult, CriticResult, LearnedRule, RuleCheck
+    ep = planned_episode(1)
+    ep.canon.rules = [LearnedRule(text="rule one"), LearnedRule(text="rule two")]
+    ok = CheckResult(verdict="match", observed="ok")
+    reply = CriticResult(wardrobe=ok, prop_state=ok, scene=ok,
+                         rules=[RuleCheck(number=2, verdict="match"), RuleCheck(number=9, verdict="mismatch")])
+    monkeypatch.setattr(critic.llm, "upload_video", lambda path, client=None: path)
+    monkeypatch.setattr(critic.llm, "ask_json", lambda **kw: reply)
+    out = critic.check_clip("a.mp4", ep.shots[0].spec, ep.canon, client=object())
+    assert [(r.number, r.rule, r.verdict) for r in out.rules] == [(1, "rule one", "unclear"), (2, "rule two", "match")]
+    assert out.decision == "REVIEW"
+
+
+def test_episode_rule_limit(client):
+    ep = planned_episode(1)
+    for i in range(learning.MAX_RULES):
+        pipeline.learn(ep, "S1", f"detail number {i} stays the same", "manual")
+    with pytest.raises(ValueError, match="Remove one"):
+        pipeline.learn(ep, "S1", "one more detail", "manual")
+
+
+def test_old_saved_results_without_the_new_fields_still_load():
+    from dramagraph.models import CriticResult
+    old = '{"wardrobe": {"verdict": "match", "observed": "x"}, "prop_state": {"verdict": "match", "observed": "x"}, "scene": {"verdict": "match", "observed": "x"}}'
+    r = CriticResult.model_validate_json(old)
+    assert r.rules == [] and r.observations == [] and r.prop_look is None

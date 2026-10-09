@@ -1,7 +1,7 @@
 """Runs the shots in order: generate, check, repair. Saves after every step."""
 from typing import Callable, Optional
 
-from . import generator, ration, storage
+from . import generator, learning, ration, storage
 from .config import get_settings
 from .critic import check_clip
 from .models import Attempt, Episode, Shot
@@ -187,7 +187,8 @@ def recheck(episode: Episode, on_progress: Progress = None, check=check_clip) ->
 
 
 def reject_and_fix(episode: Episode, shot_id: str, instruction: str,
-                   generate=generator.generate_with_retries, check=check_clip) -> Episode:
+                   generate=generator.generate_with_retries, check=check_clip,
+                   ask=None) -> Episode:
     """The creator saw a problem in a clip the critic passed. That clip is never used
     again, the miss is put on record, and the shot is regenerated with their fix."""
     shot = _shot(episode, shot_id)
@@ -200,7 +201,20 @@ def reject_and_fix(episode: Episode, shot_id: str, instruction: str,
         raise ValueError("The Veo ration is used up, so the shot cannot be regenerated.")
     current.rejected = True
     shot.creator_catches += 1
+    learn(episode, shot_id, instruction, "creator_catch", ask)
     return repair_with_instruction(episode, shot_id, instruction, generate, check)
+
+
+def learn(episode: Episode, shot_id: str, note: str, source: str, ask=None) -> bool:
+    """Turn a note into a rule the critic checks from now on. Makes no video."""
+    if not note.strip():
+        raise ValueError("Type the rule or the problem first.")
+    shot = _shot(episode, shot_id)
+    kwargs = {"ask": ask} if ask else {}
+    rule = learning.learn_rule(note, shot.spec, source, **kwargs)
+    added = learning.add_rule(episode.canon, rule)
+    storage.save_episode(episode)
+    return added
 
 
 def overrule(episode: Episode, shot_id: str) -> Episode:

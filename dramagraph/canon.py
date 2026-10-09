@@ -3,7 +3,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from . import llm
+from . import learning, llm
 from .models import Beat, Canon, Character, Prop
 
 PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
@@ -46,6 +46,7 @@ def build_canon(script_lines: list[str], picked: list[Beat], ask=llm.ask_json) -
         character=Character(name=d.name, appearance=d.appearance, wardrobe=d.wardrobe,
                             accessories=d.accessories),
         props=props, location=d.location, time_of_day=d.time_of_day,
+        rules=learning.starting_rules(),
     )
 
 

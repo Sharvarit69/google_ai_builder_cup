@@ -1,0 +1,12 @@
+A creator reviewing an AI-generated video shot reported a problem. Turn their
+note into ONE rule that a continuity checker can verify by watching a clip.
+
+- "text": one plain sentence saying what must be true. State the correct
+  situation, not the mistake. No shot numbers.
+- "applies_to_all_shots": true if the rule should hold in every shot of any
+  video (for example "No object appears or vanishes without someone causing
+  it", or "The lunch box always has two tiers"). false if it is only about
+  what happens in this particular shot.
+
+THE SHOT: {action}
+THE CREATOR'S NOTE: {note}

@@ -4,7 +4,7 @@ from typing import Optional
 
 from . import llm
 from .config import get_settings
-from .models import Canon, CriticResult, ShotSpec
+from .models import Canon, CriticResult, RuleCheck, ShotSpec
 
 PROMPT_FILE = Path(__file__).resolve().parent.parent / "prompts" / "critic.txt"
 
@@ -19,6 +19,20 @@ CROSS_SHOT_NOTE = (
     "props the same objects (same shape, parts and colour) as in the previous shot?\n"
 )
 NO_CROSS_SHOT_NOTE = "\nSet cross_shot to null.\n"
+LABELS = {"wardrobe": "Wardrobe", "prop_look": "Prop appearance", "prop_state": "Prop state",
+          "scene": "Scene", "cross_shot": "Matches previous clip"}
+
+
+def rules_block(spec: ShotSpec, canon: Canon) -> str:
+    rules = canon.rules_for(spec.shot_id)
+    if not rules:
+        return 'There are no extra rules, so "rules" is an empty list.\n'
+    lines = ["RULES THE CREATOR ADDED",
+             "These came from problems a person spotted. Give each one a verdict under",
+             '"rules", using its number. If a rule is about something that does not occur',
+             'in this shot, its verdict is "match".']
+    lines += [f"{i + 1}. {r.text}" for i, r in enumerate(rules)]
+    return "\n".join(lines) + "\n"
 
 
 def build_prompt(spec: ShotSpec, canon: Canon, has_previous: bool = False) -> str:
@@ -47,6 +61,9 @@ def build_prompt(spec: ShotSpec, canon: Canon, has_previous: bool = False) -> st
         second_person_note=SECOND_PERSON_NOTE if spec.second_person else "",
         cross_shot_note=CROSS_SHOT_NOTE if has_previous else NO_CROSS_SHOT_NOTE,
         prop_look_note="" if canon.props else "No prop is required, so set prop_look to null.",
+        rules_block=rules_block(spec, canon),
+        action_note=(f"This shot is meant to show: {spec.action}\n"
+                     if spec.action and spec.action != "uploaded clip" else ""),
     )
 
 
@@ -58,7 +75,23 @@ def verdicts(result: CriticResult) -> dict[str, str]:
     out["scene"] = result.scene.verdict
     if result.cross_shot is not None:
         out["cross_shot"] = result.cross_shot.verdict
+    for r in result.rules:
+        out[f"rule_{r.number}"] = r.verdict
     return out
+
+
+def lines(result: CriticResult) -> list[dict]:
+    """Every check as a row to display: label, verdict and what was observed."""
+    rows = []
+    for key in ("wardrobe", "prop_look", "prop_state", "scene", "cross_shot"):
+        check = getattr(result, key)
+        if check is not None:
+            rows.append({"key": key, "label": LABELS[key], "verdict": check.verdict,
+                         "observed": check.observed})
+    for r in result.rules:
+        rows.append({"key": f"rule_{r.number}", "label": f"Your rule: {r.rule}",
+                     "verdict": r.verdict, "observed": r.observed})
+    return rows
 
 
 def decide(result: CriticResult) -> str:
@@ -97,6 +130,18 @@ def check_clip(
         result.cross_shot = None
     if not canon.props:
         result.prop_look = None
+    # Attach the rule text, drop numbers that do not exist, and make sure no rule is skipped.
+    expected = canon.rules_for(spec.shot_id)
+    by_number = {r.number: r for r in result.rules if 1 <= r.number <= len(expected)}
+    result.rules = []
+    for i, rule in enumerate(expected, start=1):
+        got = by_number.get(i) or RuleCheck(number=i, verdict="unclear",
+                                            observed="The critic did not report on this rule.")
+        got.rule = rule.text
+        result.rules.append(got)
+    result.observations = result.observations[:3]
+    for o in result.observations:
+        o.timestamp_seconds = max(0.0, o.timestamp_seconds)
     for v in result.violations:
         v.timestamp_seconds = max(0.0, v.timestamp_seconds)
     result.decision = decide(result)  # the model's own decision is ignored
