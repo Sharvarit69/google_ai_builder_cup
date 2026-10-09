@@ -252,7 +252,13 @@ def _shot_card(ep, shot, unlocked) -> None:
             st.rerun()
 
     show_shot(shot, key=ep.episode_id, on_use=use)
-    if shot.status == "DROPPED" or not shot.attempts:
+    if shot.status == "DROPPED":
+        if st.button("Restore this shot", key=f"restore_{sid}",
+                     help="Brings the shot back with the clips it had. Nothing is regenerated."):
+            if _run("Saving", lambda: pipeline.restore(ep, sid)):
+                st.rerun()
+        return
+    if not shot.attempts:
         return
 
     suggestion, _ = pipeline.suggested_fix(shot)
@@ -270,7 +276,9 @@ def _shot_card(ep, shot, unlocked) -> None:
                 lambda: pipeline.fix_shot(ep, sid, fix)):
             st.rerun()
     if shot.status == "FLAGGED":
-        if cols[1].button("Accept as it is", key=f"ok_{sid}", disabled=shot.chosen_attempt is None):
+        if cols[1].button("Accept as it is", key=f"ok_{sid}",
+                          disabled=pipeline.latest_clip(shot) is None,
+                          help="Use the clip shown above, even though the critic did not pass it."):
             if _run("Saving", lambda: pipeline.overrule(ep, sid)):
                 st.rerun()
     if cols[2].button("Drop this shot", key=f"drop_{sid}"):
