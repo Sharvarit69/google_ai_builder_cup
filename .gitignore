@@ -1,0 +1,7 @@
+.env
+local_data/
+*.mp4
+__pycache__/
+.pytest_cache/
+*.pyc
+.ipynb_checkpoints/
