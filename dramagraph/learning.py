@@ -75,3 +75,10 @@ def forget(text: str) -> None:
 def starting_rules() -> list[LearnedRule]:
     """Rules a new episode begins with: everything general learned so far."""
     return [r.model_copy() for r in library()]
+
+
+def has_rule(canon: Canon, text: str) -> bool:
+    """True if a rule already says this, or was made from these exact words."""
+    want = text.strip().rstrip(".").lower()
+    return any(want in (r.text.strip().rstrip(".").lower(), r.from_note.strip().rstrip(".").lower())
+               for r in canon.rules)

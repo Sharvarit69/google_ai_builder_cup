@@ -425,7 +425,7 @@ SHORT_STATUS = {"ACCEPTED": "Accepted", "FLAGGED": "Needs decision", "OVERRULED"
 TAG_CSS = """<style>
 .dg-tag{display:inline-block;padding:1px 9px;border-radius:10px;font-size:0.78rem;font-weight:600;margin-right:6px}
 .dg-major{background:#fde2e1;color:#b42318}.dg-minor{background:#fef3c7;color:#92400e}
-.dg-time{background:#eef2f6;color:#334155}
+.dg-time{background:#eef2f6;color:#334155}.dg-rule{background:#e0e7ff;color:#3730a3}
 </style>"""
 
 
@@ -480,6 +480,10 @@ def _problems_tab(ep, shot) -> None:
     from dramagraph import problems
 
     found = problems.for_shot(shot)
+    attempt = chosen(shot)
+    if attempt is None or attempt.critic is None:
+        st.write("This clip has not been checked yet. Use 'Check the clips again' under More.")
+        return
     if not found:
         st.write("No problems found. Every check passed.")
         return
@@ -488,18 +492,52 @@ def _problems_tab(ep, shot) -> None:
     for i, p in enumerate(found):
         with st.container(border=True):
             when = f"<span class='dg-tag dg-time'>at 0:{int(p.seconds):02d}</span>" if p.seconds else ""
-            st.markdown(f"<span class='dg-tag dg-{p.severity}'>{p.severity.upper()}</span>{when}"
+            mine = "<span class='dg-tag dg-rule'>YOUR RULE</span>" if p.source == "rule" else ""
+            st.markdown(f"<span class='dg-tag dg-{p.severity}'>{p.severity.upper()}</span>{mine}{when}"
                         f"&nbsp;**{p.headline}**", unsafe_allow_html=True)
             if p.detail and p.detail.rstrip(".").lower() != p.headline.rstrip(".").lower():
                 st.write(p.detail)
             if p.fix:
-                st.markdown(f"**Suggested fix:** {p.fix}")
-            a, b, _ = st.columns([1.3, 1.1, 2])
+                label = "Should be" if p.source == "check" else "Suggested fix"
+                st.markdown(f"**{label}:** {p.fix}")
+            a, b, c, _ = st.columns([1.3, 1.1, 1.4, 1])
             a.button(f"▶ Play from 0:{int(p.seconds):02d}", key=f"play_{sid}_{i}", use_container_width=True,
                      on_click=lambda t=p.seconds: st.session_state.update({f"t_{sid}": t}))
             if p.fix:
                 b.button("Use this fix", key=f"use_{sid}_{i}", use_container_width=True,
                          on_click=lambda f=p.fix: st.session_state.update({_fix_key(ep, shot): f}))
+            if p.source == "check":
+                c.caption("Already checked every time")
+            elif p.source == "rule" or (p.fix and learning.has_rule(ep.canon, p.fix)):
+                c.button("✓ Rule saved", key=f"saved_{sid}_{i}", disabled=True, use_container_width=True)
+            elif p.fix:
+                if c.button("Always check this", key=f"rule_{sid}_{i}", use_container_width=True,
+                            help="Saves the suggested fix as a rule and checks every clip against it "
+                                 "straight away. Makes no new video."):
+                    bar = st.progress(0.0, "Saving the rule and checking the clips")
+
+                    def work(f=p.fix):
+                        pipeline.save_rule_and_recheck(
+                            ep, sid, f, on_progress=lambda m, x: bar.progress(min(x, 1.0), m))
+                    rules_before = len(ep.canon.rules)
+                    ok = _run("Saving the rule", work)
+                    _reset_fix_boxes(ep)
+                    if len(ep.canon.rules) > rules_before:
+                        _announce_rule(ep, p.fix)
+                    if ok:
+                        st.rerun()
+
+
+def _reset_fix_boxes(ep) -> None:
+    """After a re-check the suggestions change, so refill the fix boxes."""
+    for key in [k for k in st.session_state if str(k).startswith(f"fix_{ep.episode_id}_")]:
+        del st.session_state[key]
+
+
+def _announce_rule(ep, note: str) -> None:
+    """Remember to show a confirmation after the page redraws."""
+    latest = ep.canon.rules[-1].text if ep.canon and ep.canon.rules else note
+    st.session_state["toast"] = f"Rule added: {latest}  ·  see Plan › Rules"
 
 
 def _checks_tab(shot) -> None:
@@ -586,12 +624,28 @@ def _decision(ep, shot) -> None:
     fix = st.text_input("What should this shot show instead?", key=key,
                         placeholder="the note is already inside the box when the lid comes off",
                         help="Filled in from the fix you chose above. Edit freely.")
+    repeats = bool(fix.strip()) and pipeline.fix_only_repeats_a_check(shot, fix)
+    already = bool(fix.strip()) and learning.has_rule(ep.canon, fix)
+    if repeats:
+        save_rule = st.checkbox("Also save this as a rule (all shots, future episodes)", value=False,
+                                disabled=True, key=f"sr_{_fix_key(ep, shot)}",
+                                help="Not needed: this is already a built-in check that runs on every clip.")
+        st.caption("Not saved as a rule: this is already checked on every clip.")
+    elif already:
+        save_rule = False
+        st.caption("✓ This is already one of your rules.")
+    else:
+        save_rule = st.checkbox("Also save this as a rule (all shots, future episodes)", value=True,
+                                key=f"sr_{_fix_key(ep, shot)}")
     unlocked = _unlock_box(f"fix_{sid}")
     a, b, c, _ = st.columns([1.4, 1.2, 1.2, 2])
     if a.button(f"Remake shot {sid[1:]} · {shot.spec.duration_seconds}s", key=f"fixgo_{sid}",
                 type="primary", use_container_width=True, disabled=not (unlocked and fix.strip())):
+        rules_before = len(ep.canon.rules)
         if _run("Making and checking the shot. This takes a minute or two.",
-                lambda: pipeline.fix_shot(ep, sid, fix)):
+                lambda: pipeline.fix_shot(ep, sid, fix, save_rule=save_rule)):
+            if len(ep.canon.rules) > rules_before:
+                _announce_rule(ep, fix)
             st.rerun()
     if needs and b.button("Keep it as it is", key=f"ok_{sid}", use_container_width=True,
                           disabled=pipeline.latest_clip(shot) is None):
@@ -600,7 +654,6 @@ def _decision(ep, shot) -> None:
     if c.button("Leave it out", key=f"drop_{sid}", use_container_width=True):
         if _run("Saving", lambda: pipeline.drop(ep, sid)):
             st.rerun()
-    st.caption("Your fix is also saved as a rule, so later shots and episodes are checked for it.")
 
 
 def _shots_step(ep) -> None:
@@ -618,9 +671,10 @@ def _shots_step(ep) -> None:
             bar = st.progress(0.0, "Checking")
             try:
                 pipeline.recheck(ep, on_progress=lambda m, f: bar.progress(min(f, 1.0), m))
+                _reset_fix_boxes(ep)
+                st.rerun()
             except Exception as error:
-                st.error(f"Stopped: {error}")
-            st.rerun()
+                st.error(str(error))
         report_button(ep)
         if [s for s in ep.shots if s.status in ("PLANNED", "GENERATING", "SKIPPED")]:
             _generate_panel(ep)
@@ -678,6 +732,8 @@ def _default(ep) -> str:
 
 
 def render() -> None:
+    if "toast" in st.session_state:
+        st.toast(st.session_state.pop("toast"), icon="📏")
     ep = _current()
     head, new = st.columns([4, 1])
     head.header(ep.title if ep else "New episode")

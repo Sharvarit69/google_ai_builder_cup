@@ -797,3 +797,60 @@ def test_critic_is_told_about_the_pictures(client):
     text = build_prompt(ep.shots[0].spec, ep.canon, picture_labels=["Priya (front)", "steel lunch box (closed)"])
     assert "Picture 1: Priya (front)" in text and "Picture 2: steel lunch box (closed)" in text
     assert "REFERENCE PICTURES" not in build_prompt(ep.shots[0].spec, ep.canon)
+
+
+
+# ---------- making rules visible from the Shots tab ----------
+
+def test_always_check_this_saves_a_rule_and_rechecks_for_free(client):
+    from dramagraph import problems
+    ep = planned_episode(2)
+    ep.shots[1].spec.action = "She pulls it closer. extra finger"
+    pipeline.run_generation(ep)
+    used, made = ration.used(), len(client.veo_prompts)
+    fix = problems.for_shot(ep.shots[1])[0].fix
+    assert problems.for_shot(ep.shots[1])[0].source == "observation"
+    assert pipeline.save_rule_and_recheck(ep, "S2", fix) is True
+    assert learning.has_rule(ep.canon, fix)
+    assert [len(s.attempts[-1].critic.rules) for s in ep.shots] == [0, 1]   # re-checked; rule is for shot 2
+    assert (ration.used(), len(client.veo_prompts)) == (used, made)             # no video made
+    assert pipeline.save_rule_and_recheck(ep, "S2", fix) is False              # already a rule
+
+
+def test_remake_can_skip_saving_the_rule(client):
+    ep = planned_episode(2)
+    pipeline.run_generation(ep)
+    pipeline.fix_shot(ep, "S2", "her watch stays on her left wrist", save_rule=False)
+    assert ep.canon.rules == [] and ep.shots[1].chosen_attempt == 2
+
+
+def test_a_fix_that_repeats_a_built_in_check_is_flagged_as_such(client):
+    from dramagraph import problems
+    ep = planned_episode(1)
+    ep.canon.character.wardrobe = "red kurta"
+    pipeline.run_generation(ep)
+    shot = ep.shots[0]
+    text, _ = pipeline.suggested_fix(shot)
+    assert pipeline.fix_only_repeats_a_check(shot, text)
+    assert not pipeline.fix_only_repeats_a_check(shot, text + " Also keep the lid on.")
+    assert problems.for_shot(shot)[0].source == "check"
+
+
+
+def test_a_failed_recheck_keeps_the_earlier_results(client):
+    """Found while testing: a re-check that could not reach Gemini wiped every result."""
+    ep = planned_episode(2)
+    pipeline.run_generation(ep)
+    before = [(s.status, s.attempts[0].critic.decision) for s in ep.shots]
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("503 service unavailable")
+
+    with pytest.raises(RuntimeError, match="earlier results were kept"):
+        pipeline.recheck(ep, check=broken)
+    assert [(s.status, s.attempts[0].critic.decision) for s in ep.shots] == before
+    assert "503" in ep.shots[0].attempts[0].error
+    with pytest.raises(RuntimeError, match="The rule was saved"):
+        pipeline.save_rule_and_recheck(ep, "S1", "her watch stays on her left wrist", check=broken)
+    assert len(ep.canon.rules) == 1
+    assert storage.load_episode("ep1").shots[0].status == "ACCEPTED"
