@@ -140,3 +140,10 @@ def upload_video(path: str, client=None, sleep=time.sleep, timeout: int = 300):
     if handle.state.name != "ACTIVE":
         raise RuntimeError(f"Video upload failed ({handle.state.name}): {path}")
     return handle
+
+
+def image_part(data: bytes, mime: str = "image/png"):
+    """A picture to send alongside a prompt."""
+    from google.genai import types
+
+    return types.Part.from_bytes(data=data, mime_type=mime)

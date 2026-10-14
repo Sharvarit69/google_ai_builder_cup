@@ -38,10 +38,23 @@ def _previous_clip(episode: Episode, shot: Shot) -> Optional[str]:
     return None
 
 
+def _pictures_for_critic(episode: Episode) -> list:
+    from . import pictures as pics
+
+    found = []
+    for owner, picture in pics.all_pictures(episode):
+        data = pics.load(picture)
+        if data:
+            found.append((pics.describe(owner, picture), data, picture.mime))
+    return found
+
+
 def _check(episode, shot, attempt, check) -> None:
     try:
-        attempt.critic = check(storage.local_copy(attempt.clip_uri), shot.spec, episode.canon,
-                               _previous_clip(episode, shot))
+        args = (storage.local_copy(attempt.clip_uri), shot.spec, episode.canon,
+                _previous_clip(episode, shot))
+        pictures = _pictures_for_critic(episode) if check is check_clip else []
+        attempt.critic = check(*args, pictures=pictures) if pictures else check(*args)
     except Exception as error:
         attempt.error = f"Critic failed: {error}"[:500]
 
@@ -280,6 +293,27 @@ def fix_shot(episode: Episode, shot_id: str, instruction: str,
             shot.pinned_attempt = was_pinned
             _settle(shot)
             finish(episode)
+    return episode
+
+
+def edit_shots(episode: Episode, changes: dict) -> Episode:
+    """Direct edits to shot descriptions: {shot_id: (what happens, camera)}.
+
+    The continuity requirements are re-applied, so an edit cannot remove them.
+    A changed shot keeps the clips it has; the change applies to the next version made.
+    """
+    from .planner import apply_rules
+
+    for shot in episode.shots:
+        if shot.spec.shot_id not in changes:
+            continue
+        action, camera = changes[shot.spec.shot_id]
+        if action.strip():
+            shot.spec.action = action.strip()
+        if camera.strip():
+            shot.spec.shot_type, shot.spec.camera_motion = camera.strip(), ""
+    apply_rules([s.spec for s in episode.shots], episode.canon)
+    storage.save_episode(episode)
     return episode
 
 

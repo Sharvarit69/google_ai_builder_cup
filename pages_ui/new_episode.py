@@ -5,13 +5,13 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from dramagraph import assembler, generator, learning, pipeline, ration, storage
-from dramagraph.canon import MAX_PROPS, build_canon, validate_reference
+from dramagraph import assembler, learning, pipeline, ration, storage
+from dramagraph.canon import MAX_PROPS, build_canon
 from dramagraph.config import get_settings
 from dramagraph.models import Episode, LearnedRule, Prop, SeededError, Shot
 from dramagraph.parser import parse_script
 from dramagraph.planner import MAX_SHOTS, apply_rules, plan_shots, replan
-from pages_ui.shot_cards import STATUS, chosen, play, report_button, show_final, show_shot
+from pages_ui.shot_cards import chosen, play, report_button, show_attempts, show_final
 
 SAMPLE = """Priya sits at her office desk in the morning, guarding her closed steel lunch box.
 She glances around the office and pulls the lunch box closer.
@@ -132,129 +132,246 @@ def _script_step(ep) -> None:
 
 # ---------- step 2: plan ----------
 
-def _canon_summary(ep) -> None:
-    c = ep.canon
-    lines = [f"**{c.character.name}** · {c.character.appearance} · wearing {c.character.wardrobe}",
-             f"**Setting** · {c.location}, {c.time_of_day}"]
-    for p in c.props:
-        states = " → ".join(p.state_by_shot.get(s.spec.shot_id, "?") for s in ep.shots)
-        look = f" ({p.description})" if p.description else ""
-        lines.append(f"**{p.name}**{look} · {states}")
-    if c.rules:
-        lines.append("**Your rules** · " + " · ".join(r.text.rstrip(".") for r in c.rules))
-    st.markdown("  \n".join(lines))
+RULE_SOURCE = {"creator_catch": "From your fix", "observation": "From a critic suggestion",
+               "manual": "Typed by you", "library": "From an earlier episode"}
 
 
-def _details_form(ep) -> None:
-    c = ep.canon
-    st.caption("The critic checks every clip against these. Keep them simple: video models "
-               "cannot reliably draw clock times or readable writing. A prop state is what "
-               "you see at the end of that shot.")
-    with st.form("details"):
-        name = st.text_input("Character name", c.character.name)
-        appearance = st.text_input("Appearance", c.character.appearance)
-        wardrobe = st.text_input("Wardrobe", c.character.wardrobe)
-        a, b = st.columns(2)
-        location = a.text_input("Location", c.location)
-        time_of_day = b.text_input("Time of day", c.time_of_day)
-        states, remove, names, looks = {}, {}, {}, {}
-        slots = list(range(len(c.props))) + ([len(c.props)] if len(c.props) < MAX_PROPS else [])
-        for pi in slots:
-            prop = c.props[pi] if pi < len(c.props) else None
-            st.markdown(f"**Prop: {prop.name}**" if prop else "**Add a prop** (optional)")
-            k = f"{ep.episode_id}_{pi}"
-            names[pi] = st.text_input("Name", prop.name if prop else "", key=f"pn_{k}")
-            looks[pi] = st.text_input(
-                "What it looks like (shape, parts, material, colour)",
-                prop.description if prop else "", key=f"pd_{k}",
-                placeholder="round two-tier stainless-steel tiffin with side clasps")
-            cols = st.columns(len(ep.shots))
-            for col, shot in zip(cols, ep.shots):
-                sid = shot.spec.shot_id
-                states[(pi, sid)] = col.text_input(
-                    f"End of shot {sid[1:]}", prop.state_by_shot.get(sid, "") if prop else "",
-                    key=f"st_{k}_{sid}")
-            if prop:
-                remove[pi] = st.checkbox(f"Stop checking the {prop.name}", key=f"rm_{k}")
-        st.markdown("**Your rules**")
-        drop_rule = {}
-        for ri, rule in enumerate(c.rules):
-            scope = "every shot" if not rule.shot_ids else "shot " + ", ".join(i[1:] for i in rule.shot_ids)
-            drop_rule[ri] = st.checkbox(f"Remove: {rule.text} ({scope})", key=f"rr_{ep.episode_id}_{ri}")
-        new_rule = st.text_input("Add a rule (applies to every shot)", key=f"nr_{ep.episode_id}",
-                                 placeholder="Her watch stays on her left wrist")
-        picture = st.file_uploader("Reference picture of the character (optional)",
-                                   type=["png", "jpg", "jpeg"])
-        consent = st.checkbox("This picture is AI-generated, or shows an adult who gave permission.")
-        saved = st.form_submit_button("Save", type="primary")
-    if saved:
-        def work():
-            if picture is not None:
-                validate_reference(picture.getvalue(), picture.name, consent)
-                storage.save_bytes(generator.reference_path(ep.episode_id), picture.getvalue())
-            c.character.name, c.character.appearance = name.strip(), appearance.strip()
-            c.character.wardrobe = wardrobe.strip()
-            c.location, c.time_of_day = location.strip(), time_of_day.strip()
-            kept = []
-            for pi in slots:
-                if remove.get(pi) or not names[pi].strip():
-                    continue
-                kept.append(Prop(
-                    name=names[pi].strip(), description=looks[pi].strip(),
-                    state_by_shot={sid: v.strip() for (qi, sid), v in states.items()
-                                   if qi == pi and v.strip()}))
-            c.props = kept
-            for ri in sorted((i for i, gone in drop_rule.items() if gone), reverse=True):
-                learning.forget(c.rules[ri].text)
-                del c.rules[ri]
-            if new_rule.strip():
-                learning.add_rule(c, LearnedRule(text=new_rule.strip(), source="manual"))
-            apply_rules([s.spec for s in ep.shots], c)
-            storage.save_episode(ep)
+def _save(ep, label: str = "Saving", work=None) -> None:
+    """Re-apply the continuity requirements, save, and redraw."""
+    def go():
+        if work:
+            work()
+        apply_rules([s.spec for s in ep.shots], ep.canon)
+        storage.save_episode(ep)
 
-        if _run("Saving", work):
-            st.session_state[f"edit_{ep.episode_id}"] = False
+    if _run(label, go):
+        st.rerun()
+
+
+def _card_header(title: str, edit_key: str | None = None, extra=None):
+    left, right = st.columns([5, 1])
+    left.markdown(f"#### {title}")
+    if edit_key is not None:
+        editing = st.session_state.get(edit_key, False)
+        if right.button("Cancel" if editing else "Edit", key=f"btn_{edit_key}", use_container_width=True):
+            st.session_state[edit_key] = not editing
             st.rerun()
+    elif extra:
+        with right:
+            extra()
+
+
+def _picture_strip(ep, owner: str, pictures_list, consent_needed: bool) -> None:
+    """Thumbnails with labels, a remove button each, and an Add picture box."""
+    from dramagraph import pictures as pics
+
+    shown = list(pictures_list)
+    if owner == "character" and not shown:
+        shown = pics.character_pictures(ep)
+    cols = st.columns(pics.MAX_PER_ITEM)
+    for col, picture in zip(cols, shown):
+        with col:
+            data = pics.load(picture)
+            if data:
+                st.image(data, use_container_width=True)
+            st.caption(picture.label or "no label")
+            if picture in pictures_list and st.button("✕", key=f"rmpic_{picture.uri}",
+                                                      help="Remove this picture"):
+                _save(ep, work=lambda u=picture.uri: pics.remove_picture(ep, owner, u))
+    if len(pictures_list) >= pics.MAX_PER_ITEM:
+        return
+    with st.popover("Add picture", use_container_width=False):
+        upload = st.file_uploader("Picture (PNG or JPG)", type=["png", "jpg", "jpeg"],
+                                  key=f"up_{ep.episode_id}_{owner}")
+        hint = "front, side, back" if owner == "character" else "a state, e.g. closed or open"
+        label = st.text_input(f"Label ({hint})", key=f"lab_{ep.episode_id}_{owner}")
+        consent = True
+        if consent_needed:
+            consent = st.checkbox("AI-generated, or an adult who gave permission",
+                                  key=f"ok_{ep.episode_id}_{owner}")
+        if st.button("Add", key=f"addpic_{ep.episode_id}_{owner}", disabled=upload is None):
+            _save(ep, "Saving the picture", lambda: pics.add_picture(
+                ep, owner, upload.getvalue(), upload.name, label, consent))
+
+
+def _character_card(ep) -> None:
+    c = ep.canon.character
+    key = f"edit_char_{ep.episode_id}"
+    with st.container(border=True):
+        _card_header("👤 Character", key)
+        if st.session_state.get(key):
+            with st.form(f"char_{ep.episode_id}"):
+                name = st.text_input("Name", c.name)
+                appearance = st.text_area("Appearance", c.appearance, height=80)
+                wardrobe = st.text_area("Wardrobe", c.wardrobe, height=80)
+                if st.form_submit_button("Save", type="primary"):
+                    def work():
+                        c.name, c.appearance, c.wardrobe = name.strip(), appearance.strip(), wardrobe.strip()
+                    st.session_state[key] = False
+                    _save(ep, work=work)
+            return
+        pics_col, text = st.columns([2, 3])
+        with pics_col:
+            _picture_strip(ep, "character", c.pictures, consent_needed=True)
+        text.markdown(f"**Name**  \n{c.name}")
+        text.markdown(f"**Appearance**  \n{c.appearance}")
+        text.markdown(f"**Wardrobe**  \n{c.wardrobe}")
+
+
+def _setting_card(ep) -> None:
+    c = ep.canon
+    key = f"edit_set_{ep.episode_id}"
+    with st.container(border=True):
+        _card_header("🏢 Setting", key)
+        if st.session_state.get(key):
+            with st.form(f"set_{ep.episode_id}"):
+                location = st.text_area("Location", c.location, height=80)
+                time_of_day = st.text_input("Time of day", c.time_of_day)
+                if st.form_submit_button("Save", type="primary"):
+                    def work():
+                        c.location, c.time_of_day = location.strip(), time_of_day.strip()
+                    st.session_state[key] = False
+                    _save(ep, work=work)
+            return
+        st.markdown(f"**Location**  \n{c.location}")
+        st.markdown(f"**Time of day**  \n{c.time_of_day}")
+
+
+def _props_card(ep) -> None:
+    c = ep.canon
+    shot_ids = [s.spec.shot_id for s in ep.shots]
+
+    def add_prop():
+        with st.popover("Add a prop", use_container_width=True, disabled=len(c.props) >= MAX_PROPS):
+            name = st.text_input("Name", key=f"np_{ep.episode_id}")
+            look = st.text_input("What it looks like (shape, parts, material, colour)",
+                                 key=f"nl_{ep.episode_id}")
+            if st.button("Add", key=f"npgo_{ep.episode_id}", disabled=not name.strip()):
+                _save(ep, work=lambda: c.props.append(Prop(name=name.strip(), description=look.strip())))
+
+    with st.container(border=True):
+        _card_header(f"🍱 Props · {len(c.props)} of {MAX_PROPS}", extra=add_prop)
+        st.caption("Objects the story depends on. The critic checks what each looks like, "
+                   "and its state at the end of every shot.")
+        if not c.props:
+            st.write("No props are being checked.")
+        for pi, prop in enumerate(c.props):
+            if pi:
+                st.divider()
+            key = f"edit_prop_{ep.episode_id}_{pi}"
+            pics_col, info = st.columns([2, 5])
+            with pics_col:
+                _picture_strip(ep, prop.name, prop.pictures, consent_needed=False)
+            with info:
+                if st.session_state.get(key):
+                    with st.form(f"prop_{ep.episode_id}_{pi}"):
+                        name = st.text_input("Name", prop.name)
+                        look = st.text_input("What it looks like", prop.description)
+                        a, b = st.columns(2)
+                        save = a.form_submit_button("Save", type="primary")
+                        cancel = b.form_submit_button("Cancel")
+                    if cancel:
+                        st.session_state[key] = False
+                        st.rerun()
+                    if save:
+                        def work(p=prop, n=name, l=look):
+                            p.name, p.description = n.strip() or p.name, l.strip()
+                        st.session_state[key] = False
+                        _save(ep, work=work)
+                else:
+                    t, e, x = st.columns([5, 1, 1])
+                    t.markdown(f"**{prop.name}**  \n{prop.description or ':gray[No description yet]'}")
+                    if e.button("Edit", key=f"pe_{key}", use_container_width=True):
+                        st.session_state[key] = True
+                        st.rerun()
+                    if x.button("Remove", key=f"px_{key}", use_container_width=True):
+                        _save(ep, work=lambda i=pi: c.props.pop(i))
+                row = {"State at the end of": prop.name}
+                row.update({f"Shot {sid[1:]}": prop.state_by_shot.get(sid, "") for sid in shot_ids})
+                edited = st.data_editor([row], hide_index=True, use_container_width=True,
+                                        disabled=["State at the end of"], key=f"states_{ep.episode_id}_{pi}")
+                new = {sid: str(edited[0].get(f"Shot {sid[1:]}") or "").strip() for sid in shot_ids}
+                if new != {sid: prop.state_by_shot.get(sid, "") for sid in shot_ids}:
+                    def work(p=prop, n=new):
+                        p.state_by_shot = {sid: v for sid, v in n.items() if v}
+                    _save(ep, work=work)
+        if c.props:
+            st.caption("Click a state to change it. It saves as soon as you leave the cell.")
+
+
+def _rules_card(ep) -> None:
+    c = ep.canon
+    with st.container(border=True):
+        _card_header(f"📏 Rules learned from you · {len(c.rules)}")
+        st.caption("Checks that came from you, not from the built-in list. They are added when you "
+                   "fix a shot in your own words, or typed below. General ones carry over to new episodes.")
+        if not c.rules:
+            st.write(":gray[No rules yet.]")
+        for ri, rule in enumerate(c.rules):
+            scope = "Every shot" if not rule.shot_ids else "Shot " + ", ".join(i[1:] for i in rule.shot_ids)
+            a, b, d, x = st.columns([6, 2, 1.4, 0.7])
+            a.write(rule.text)
+            b.caption(RULE_SOURCE.get(rule.source, ""))
+            d.caption(scope)
+            if x.button("✕", key=f"rmrule_{ep.episode_id}_{ri}", help="Remove this rule"):
+                def work(i=ri):
+                    learning.forget(c.rules[i].text)
+                    del c.rules[i]
+                _save(ep, work=work)
+        a, b = st.columns([5, 1])
+        text = a.text_input("Add a rule", key=f"newrule_{ep.episode_id}_{len(c.rules)}",
+                            placeholder="for example: her watch stays on her left wrist",
+                            label_visibility="collapsed")
+        if b.button("Add rule", key=f"addrule_{ep.episode_id}", use_container_width=True,
+                    disabled=not text.strip()):
+            _save(ep, work=lambda: learning.add_rule(c, LearnedRule(text=text.strip(), source="manual")))
+
+
+def _shots_card(ep) -> None:
+    started = _started(ep)
+    seconds = ep.shots[0].spec.duration_seconds if ep.shots else 0
+    with st.container(border=True):
+        _card_header(f"🎬 Shots · {len(ep.shots)} × {seconds} seconds")
+        st.caption("Edit any line directly." + ("" if started else
+                   " Or describe a bigger change below and let Gemini re-plan.")
+                   + (" Changes apply to the next version made of that shot." if started else ""))
+        rows = [{"Shot": int(s.spec.shot_id[1:]), "What happens": s.spec.action,
+                 "Camera": ", ".join(x for x in (s.spec.shot_type, s.spec.camera_motion) if x)}
+                for s in ep.shots]
+        edited = st.data_editor(rows, hide_index=True, use_container_width=True, disabled=["Shot"],
+                                key=f"shots_{ep.episode_id}")
+        changes = {f"S{r['Shot']}": (str(r["What happens"] or ""), str(r["Camera"] or ""))
+                   for r, old in zip(edited, rows)
+                   if (r["What happens"], r["Camera"]) != (old["What happens"], old["Camera"])}
+        if changes:
+            _save(ep, "Saving the shots", lambda: pipeline.edit_shots(ep, changes))
+        if not started:
+            a, b = st.columns([5, 1])
+            instruction = a.text_input("Re-plan", label_visibility="collapsed",
+                                       placeholder="Or describe a bigger change, e.g. make shot 2 a close-up of her hands")
+            if b.button("Re-plan", use_container_width=True, disabled=not instruction.strip()):
+                picked = [x for x in ep.beats if x.beat_id in ep.picked_beat_ids]
+
+                def work():
+                    specs = replan(picked, ep.canon, [s.spec for s in ep.shots], instruction)
+                    ep.shots = [Shot(spec=s) for s in specs]
+                _save(ep, "Re-planning", work)
 
 
 def _plan_step(ep) -> None:
-    started = _started(ep)
-    st.markdown("##### What must stay the same in every shot")
-    editing_key = f"edit_{ep.episode_id}"
-    with st.container(border=True):
-        if st.session_state.get(editing_key):
-            _details_form(ep)
-            if st.button("Cancel"):
-                st.session_state[editing_key] = False
-                st.rerun()
-        else:
-            _canon_summary(ep)
-            if st.button("Edit"):
-                st.session_state[editing_key] = True
-                st.rerun()
-    if started:
-        st.caption("After editing, open Shots and use 'Check the clips again'. It costs no video.")
-
-    st.markdown("##### Shots")
-    with st.container(border=True):
-        for shot in ep.shots:
-            s = shot.spec
-            st.markdown(f"**{s.shot_id[1:]}.** {s.action}  \n:gray[{s.shot_type}, {s.camera_motion}]")
-        if not started:
-            with st.expander("Change the plan"):
-                instruction = st.text_input("What should change",
-                                            placeholder="make shot 2 a close-up of her hands")
-                if st.button("Re-plan", disabled=not instruction.strip()):
-                    picked = [b for b in ep.beats if b.beat_id in ep.picked_beat_ids]
-
-                    def work():
-                        specs = replan(picked, ep.canon, [s.spec for s in ep.shots], instruction)
-                        ep.shots = [Shot(spec=s) for s in specs]
-                        storage.save_episode(ep)
-
-                    if _run("Re-planning", work):
-                        st.rerun()
-
+    st.caption("Gemini filled these in from your script. Everything here is what the critic "
+               "checks in every clip, so edit anything that is not right.")
+    left, right = st.columns([3, 2])
+    with left:
+        _character_card(ep)
+    with right:
+        _setting_card(ep)
+    _props_card(ep)
+    _rules_card(ep)
+    _shots_card(ep)
+    if _started(ep):
+        st.caption("After changing details or rules, open Shots and use 'Check the clips again'. "
+                   "It costs no video.")
     _generate_panel(ep)
 
 
@@ -266,13 +383,12 @@ def _generate_panel(ep) -> None:
     settings = get_settings()
     needed = sum(s.spec.duration_seconds for s in todo)
     left = ration.remaining()
-    st.markdown("##### Make the video")
     with st.container(border=True):
         if not settings.veo_model:
             st.error("Setup is incomplete: VEO_MODEL must be set.")
             return
-        st.write(f"{len(todo)} shots · about {needed} seconds of video · {left} seconds left in "
-                 "the budget. Takes a minute or two per shot; keep this page open.")
+        st.write(f"**Make the video** · {len(todo)} shots · about {needed} seconds · {left} seconds "
+                 "left in the budget. Each shot takes a minute or two; keep this page open.")
         if not _unlock_box("gen"):
             return
         seed = None
@@ -289,7 +405,7 @@ def _generate_panel(ep) -> None:
                     seed = SeededError(shot_id=seed_shot, kind=seed_kind, value=seed_value.strip())
         if left < needed:
             st.warning(f"Only {left} seconds remain, so some shots may not be made.")
-        label = "Continue making shots" if _started(ep) else f"Make {len(todo)} shots"
+        label = "Continue making shots" if _started(ep) else f"Make {len(todo)} shots · {needed} seconds of video"
         if st.button(label, type="primary", disabled=left < ep.shots[0].spec.duration_seconds):
             if seed:
                 ep.seeded_error = seed
@@ -304,83 +420,187 @@ def _generate_panel(ep) -> None:
 
 # ---------- step 3: shots ----------
 
+SHORT_STATUS = {"ACCEPTED": "Accepted", "FLAGGED": "Needs decision", "OVERRULED": "Kept by you",
+                "DROPPED": "Left out", "SKIPPED": "Not made", "PLANNED": "Not made", "GENERATING": "Making"}
+TAG_CSS = """<style>
+.dg-tag{display:inline-block;padding:1px 9px;border-radius:10px;font-size:0.78rem;font-weight:600;margin-right:6px}
+.dg-major{background:#fde2e1;color:#b42318}.dg-minor{background:#fef3c7;color:#92400e}
+.dg-time{background:#eef2f6;color:#334155}
+</style>"""
+
+
 def _status_banner(ep) -> None:
     waiting = [s for s in ep.shots if s.status in ("FLAGGED", "SKIPPED", "PLANNED", "GENERATING")]
     kept = [s for s in ep.shots if s.status != "DROPPED"]
     if not waiting:
-        st.success(f"All {len(kept)} shots are ready.")
-        st.button("Go to Export", type="primary", on_click=_go, args=(EXPORT,))
+        a, b = st.columns([4, 1])
+        a.success(f"All {len(kept)} shots are ready.")
+        b.button("Go to Export", type="primary", on_click=_go, args=(EXPORT,), use_container_width=True)
     else:
         names = ", ".join(s.spec.shot_id[1:] for s in waiting)
-        st.warning(f"{len(waiting)} of {len(ep.shots)} shots need your decision: shot {names}.")
+        ready = len(ep.shots) - len(waiting)
+        st.warning(f"{ready} of {len(ep.shots)} shots are ready. **Shot {names} "
+                   f"need{'s' if len(waiting) == 1 else ''} your decision.**")
+
+
+def _short_status(shot) -> str:
+    fixed = shot.status == "ACCEPTED" and any(
+        a.critic and a.critic.decision == "REGENERATE" for a in shot.attempts)
+    return "Fixed" if fixed else SHORT_STATUS.get(shot.status, shot.status)
 
 
 def _storyboard(ep) -> str:
-    """All shots side by side. Returns the id of the shot to show below."""
+    from dramagraph import problems
+
     key = f"sel_{ep.episode_id}"
     ids = [s.spec.shot_id for s in ep.shots]
     if st.session_state.get(key) not in ids:
-        first_waiting = next((s.spec.shot_id for s in ep.shots if s.status == "FLAGGED"), ids[0])
-        st.session_state[key] = first_waiting
+        st.session_state[key] = next((s.spec.shot_id for s in ep.shots if s.status == "FLAGGED"), ids[0])
     for col, shot in zip(st.columns(len(ep.shots)), ep.shots):
         sid = shot.spec.shot_id
         with col:
             attempt = chosen(shot)
             if attempt and attempt.clip_uri:
-                play(attempt.clip_uri)
+                play(attempt.clip_uri, muted=True)
             else:
                 st.caption("No clip")
-            selected = st.session_state[key] == sid
-            st.button(f"{ICON.get(shot.status, '')} Shot {sid[1:]}", key=f"pick_{sid}",
-                      type="primary" if selected else "secondary", use_container_width=True,
+            st.button(f"{ICON.get(shot.status, '')} Shot {sid[1:]} · {_short_status(shot)}",
+                      key=f"pick_{sid}", use_container_width=True,
+                      type="primary" if st.session_state[key] == sid else "secondary",
                       on_click=lambda s=sid: st.session_state.update({key: s}))
+            st.caption(problems.one_line(shot))
     return st.session_state[key]
 
 
-def _shot_panel(ep, shot) -> None:
+def _fix_key(ep, shot) -> str:
+    return f"fix_{ep.episode_id}_{shot.spec.shot_id}_{len(shot.attempts)}"
+
+
+def _problems_tab(ep, shot) -> None:
+    from dramagraph import problems
+
+    found = problems.for_shot(shot)
+    if not found:
+        st.write("No problems found. Every check passed.")
+        return
+    st.markdown(TAG_CSS, unsafe_allow_html=True)
     sid = shot.spec.shot_id
+    for i, p in enumerate(found):
+        with st.container(border=True):
+            when = f"<span class='dg-tag dg-time'>at 0:{int(p.seconds):02d}</span>" if p.seconds else ""
+            st.markdown(f"<span class='dg-tag dg-{p.severity}'>{p.severity.upper()}</span>{when}"
+                        f"&nbsp;**{p.headline}**", unsafe_allow_html=True)
+            if p.detail and p.detail.rstrip(".").lower() != p.headline.rstrip(".").lower():
+                st.write(p.detail)
+            if p.fix:
+                st.markdown(f"**Suggested fix:** {p.fix}")
+            a, b, _ = st.columns([1.3, 1.1, 2])
+            a.button(f"▶ Play from 0:{int(p.seconds):02d}", key=f"play_{sid}_{i}", use_container_width=True,
+                     on_click=lambda t=p.seconds: st.session_state.update({f"t_{sid}": t}))
+            if p.fix:
+                b.button("Use this fix", key=f"use_{sid}_{i}", use_container_width=True,
+                         on_click=lambda f=p.fix: st.session_state.update({_fix_key(ep, shot): f}))
+
+
+def _checks_tab(shot) -> None:
+    from dramagraph.critic import lines as critic_lines
+
+    attempt = chosen(shot)
+    if attempt is None or attempt.critic is None:
+        st.write("Nothing checked yet.")
+        return
+    mark = {"match": "✅", "mismatch": "❌", "unclear": "⚠️"}
+    for row in critic_lines(attempt.critic):
+        st.write(f"{mark[row['verdict']]} **{row['label']}** · {row['observed']}")
+    if attempt.critic.seen:
+        st.caption(f"What the critic saw: {attempt.critic.seen}")
+
+
+def _pictures_tab(shot) -> None:
+    attempt = chosen(shot)
+    used = attempt.references_used if attempt else []
+    if used:
+        st.write("Pictures sent to Veo for this version:")
+        for name in used:
+            st.write(f"• {name}")
+    else:
+        st.write("No reference pictures were used for this version. Add pictures in Plan.")
+
+
+def _shot_panel(ep, shot) -> None:
+    from dramagraph import problems
+
+    sid = shot.spec.shot_id
+    attempt = chosen(shot)
+    made = [a for a in shot.attempts if a.clip_uri]
 
     def use(attempt_no):
         if _run("Saving", lambda: pipeline.use_attempt(ep, sid, attempt_no)):
             st.rerun()
 
     with st.container(border=True):
-        st.caption(shot.spec.action)
-        show_shot(shot, key=ep.episode_id, on_use=use, with_video=False)
+        left, right = st.columns([1, 2])
+        with left:
+            if attempt and attempt.clip_uri:
+                play(attempt.clip_uri, start=st.session_state.get(f"t_{sid}", 0))
+                st.caption(f"Version {made.index(attempt) + 1 if attempt in made else 1} of {len(made)} · "
+                           f"{shot.spec.duration_seconds} seconds")
+            else:
+                failures = [a.error for a in shot.attempts if a.error]
+                st.error("No clip could be made. " + (failures[-1] if failures else ""))
+        with right:
+            st.markdown(f"### Shot {sid[1:]} · {_short_status(shot)}")
+            st.caption(f"Should show: {shot.spec.action}")
+            count = len(problems.for_shot(shot))
+            tabs = st.tabs([f"Problems · {count}", "All checks", f"Versions · {len(made)}", "Pictures used"])
+            with tabs[0]:
+                _problems_tab(ep, shot)
+            with tabs[1]:
+                _checks_tab(shot)
+            with tabs[2]:
+                if len(made) > 1:
+                    show_attempts(shot, on_use=use)
+                else:
+                    st.write("Only one version has been made of this shot.")
+            with tabs[3]:
+                _pictures_tab(shot)
 
-        if shot.status == "DROPPED":
-            if st.button("Restore this shot", key=f"restore_{sid}"):
-                if _run("Saving", lambda: pipeline.restore(ep, sid)):
-                    st.rerun()
-            return
-        if not shot.attempts:
-            return
 
-        needs_decision = shot.status == "FLAGGED"
-        if not needs_decision and not st.toggle("Something wrong with this shot?", key=f"wrong_{sid}"):
-            return
-        suggestion, _ = pipeline.suggested_fix(shot)
-        st.divider()
-        fix = st.text_input("What should this shot show instead?", suggestion,
-                            key=f"fix_{ep.episode_id}_{sid}_{len(shot.attempts)}",
-                            placeholder="the note is already inside the box when the lid comes off",
-                            help="Pre-filled with the critic's suggestion when it has one. "
-                                 "Your instruction is also remembered as a rule.")
-        unlocked = _unlock_box(f"fix_{sid}")
-        cols = st.columns(3)
-        if cols[0].button(f"Remake this shot ({shot.spec.duration_seconds}s)", key=f"fixgo_{sid}",
-                          type="primary", disabled=not (unlocked and fix.strip())):
-            if _run("Making and checking the shot. This takes a minute or two.",
-                    lambda: pipeline.fix_shot(ep, sid, fix)):
+def _decision(ep, shot) -> None:
+    sid = shot.spec.shot_id
+    if shot.status == "DROPPED":
+        if st.button("Put this shot back", key=f"restore_{sid}"):
+            if _run("Saving", lambda: pipeline.restore(ep, sid)):
                 st.rerun()
-        if needs_decision:
-            if cols[1].button("Keep it as it is", key=f"ok_{sid}",
-                              disabled=pipeline.latest_clip(shot) is None):
-                if _run("Saving", lambda: pipeline.overrule(ep, sid)):
-                    st.rerun()
-        if cols[2].button("Leave this shot out", key=f"drop_{sid}"):
-            if _run("Saving", lambda: pipeline.drop(ep, sid)):
-                st.rerun()
+        return
+    if not shot.attempts:
+        return
+    needs = shot.status == "FLAGGED"
+    if needs:
+        st.markdown(f"##### What do you want to do with shot {sid[1:]}?")
+    elif not st.toggle("Something wrong with this shot?", key=f"wrong_{sid}"):
+        return
+    key = _fix_key(ep, shot)
+    if key not in st.session_state:
+        st.session_state[key] = pipeline.suggested_fix(shot)[0]
+    fix = st.text_input("What should this shot show instead?", key=key,
+                        placeholder="the note is already inside the box when the lid comes off",
+                        help="Filled in from the fix you chose above. Edit freely.")
+    unlocked = _unlock_box(f"fix_{sid}")
+    a, b, c, _ = st.columns([1.4, 1.2, 1.2, 2])
+    if a.button(f"Remake shot {sid[1:]} · {shot.spec.duration_seconds}s", key=f"fixgo_{sid}",
+                type="primary", use_container_width=True, disabled=not (unlocked and fix.strip())):
+        if _run("Making and checking the shot. This takes a minute or two.",
+                lambda: pipeline.fix_shot(ep, sid, fix)):
+            st.rerun()
+    if needs and b.button("Keep it as it is", key=f"ok_{sid}", use_container_width=True,
+                          disabled=pipeline.latest_clip(shot) is None):
+        if _run("Saving", lambda: pipeline.overrule(ep, sid)):
+            st.rerun()
+    if c.button("Leave it out", key=f"drop_{sid}", use_container_width=True):
+        if _run("Saving", lambda: pipeline.drop(ep, sid)):
+            st.rerun()
+    st.caption("Your fix is also saved as a rule, so later shots and episodes are checked for it.")
 
 
 def _shots_step(ep) -> None:
@@ -391,9 +611,10 @@ def _shots_step(ep) -> None:
     selected = _storyboard(ep)
     shot = next(s for s in ep.shots if s.spec.shot_id == selected)
     _shot_panel(ep, shot)
+    _decision(ep, shot)
     with st.expander("More"):
         if st.button("Check the clips again (no new video)",
-                     help="Runs the critic again with the current details and rules."):
+                     help="Runs the critic again with the current details, pictures and rules."):
             bar = st.progress(0.0, "Checking")
             try:
                 pipeline.recheck(ep, on_progress=lambda m, f: bar.progress(min(f, 1.0), m))

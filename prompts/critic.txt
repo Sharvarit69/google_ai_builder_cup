@@ -1,6 +1,6 @@
 You are a continuity checker for a short video.
 
-EXPECTED IN THIS SHOT
+{pictures_note}EXPECTED IN THIS SHOT
 Character: {character}
 Prop: {prop}
 Scene: {scene}
@@ -28,8 +28,10 @@ wardrobe is "mismatch".
 
 {rules_block}
 For every mismatch add one violation. Its type must be WARDROBE, PROP_LOOK,
-PROP_STATE, SCENE, CROSS_SHOT or RULE. Give the second it first appears, what
-was expected and what you observed. If nothing is wrong, violations is
+PROP_STATE, SCENE, CROSS_SHOT or RULE. Give a "headline" of at most eight
+plain words that a non-expert understands (for example "Lunch box is open,
+should be closed"), the second it first appears, what was expected and what
+you observed. If nothing is wrong, violations is
 an empty list.
 {cross_shot_note}
 Finally, watch the clip once more as a script supervisor would and list, under
@@ -38,6 +40,7 @@ above do not cover. For example: an object that appears from nowhere, vanishes
 or changes into something else; a hand or face that deforms; an action that
 contradicts what the shot is meant to show; something physically impossible.
 {action_note}For each one give:
+- "headline": at most eight plain words, for example "A note appears out of nowhere"
 - "what": the problem, in one sentence
 - "timestamp_seconds": when it happens
 - "severity": "major" if it breaks the story or an ordinary viewer would

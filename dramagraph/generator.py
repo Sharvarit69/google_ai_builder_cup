@@ -1,6 +1,5 @@
 """The only place Veo is called. It cannot run unless the ration has seconds left."""
 import time
-from typing import Optional
 
 from . import llm, ration, storage
 from .config import get_settings
@@ -24,8 +23,7 @@ def reference_path(episode_id: str) -> str:
     return f"episodes/{episode_id}/reference.png"
 
 
-def call_veo(prompt: str, reference: Optional[bytes] = None, client=None,
-             sleep=time.sleep) -> bytes:
+def call_veo(prompt: str, reference=None, client=None, sleep=time.sleep) -> bytes:
     """Submit one clip to Veo, wait for it and return the MP4 bytes."""
     from google.genai import types
 
@@ -34,12 +32,16 @@ def call_veo(prompt: str, reference: Optional[bytes] = None, client=None,
         raise RequestRejected("VEO_MODEL is not set.")
     client = client or llm.get_client()
     options = {"aspect_ratio": "9:16"}
+    # reference is a list of (bytes, mime type) pairs; plain bytes is accepted too
+    if isinstance(reference, (bytes, bytearray)):
+        reference = [(bytes(reference), "image/png")]
     if reference:
         options["reference_images"] = [
             types.VideoGenerationReferenceImage(
-                image=types.Image(image_bytes=reference, mime_type="image/png"),
+                image=types.Image(image_bytes=data, mime_type=mime),
                 reference_type="asset",
             )
+            for data, mime in reference
         ]
     try:
         operation = client.models.generate_videos(
@@ -86,15 +88,23 @@ def generate_clip(episode: Episode, shot: Shot, prompt: str, kind: str,
         attempt.error = RATION_EMPTY
         return attempt
 
-    ref_path = reference_path(episode.episode_id)
-    reference = storage.load_bytes(ref_path) if storage.exists(ref_path) else None
+    from . import pictures as pics   # imported here to avoid a circular import
+
+    reference, used = [], []
+    for owner, picture in pics.pick_for_shot(episode, shot.spec) if episode.canon else []:
+        data = pics.load(picture)
+        if data:
+            reference.append((data, picture.mime))
+            used.append(pics.describe(owner, picture))
     try:
         try:
-            data = veo(prompt, reference)
+            data = veo(prompt, reference or None)
+            attempt.references_used = used
         except RequestRejected as error:
-            if reference is None or "reference" not in str(error).lower():
+            words = str(error).lower()
+            if not reference or not ("reference" in words or "image" in words):
                 raise
-            data = veo(prompt, None)  # the model would not take the picture; go without
+            data = veo(prompt, None)  # the model would not take the pictures; go without
         storage.save_bytes(path, data)
         attempt.clip_uri = path
         episode.seconds_generated += seconds

@@ -27,9 +27,9 @@ def clip_bytes(uri: str) -> bytes:
     return storage.load_bytes(uri)
 
 
-def play(uri) -> None:
+def play(uri, start: int = 0, muted: bool = False) -> None:
     if uri and storage.exists(uri):
-        st.video(clip_bytes(uri))
+        st.video(clip_bytes(uri), start_time=int(start), muted=muted)
 
 
 def describe_observation(o) -> str:
