@@ -12,7 +12,7 @@ SECOND_PERSON_NOTE = (
     "A second person's hands may appear. Hands alone are not an extra person.\n"
 )
 CROSS_SHOT_NOTE = (
-    "\nTwo videos are attached. The FIRST is the previous shot and is only for\n"
+    "\nTwo videos are attached after any pictures. The FIRST video is the previous shot and is only for\n"
     "comparison. The SECOND is the shot to check; all verdicts above are about\n"
     "the second video. Also give a cross_shot verdict: is it the same person,\n"
     "in the same clothes and the same place as the previous shot, and are the\n"
@@ -35,7 +35,18 @@ def rules_block(spec: ShotSpec, canon: Canon) -> str:
     return "\n".join(lines) + "\n"
 
 
-def build_prompt(spec: ShotSpec, canon: Canon, has_previous: bool = False) -> str:
+def pictures_note(labels: list[str]) -> str:
+    if not labels:
+        return ""
+    lines = ["REFERENCE PICTURES",
+             "The pictures attached before the video(s) show how things must look:"]
+    lines += [f"Picture {i + 1}: {label}" for i, label in enumerate(labels)]
+    lines.append("Compare the person and props in the video with these pictures.")
+    return "\n".join(lines) + "\n\n"
+
+
+def build_prompt(spec: ShotSpec, canon: Canon, has_previous: bool = False,
+                 picture_labels: Optional[list[str]] = None) -> str:
     c = canon.character
     character = f"{c.name}, adult. {c.appearance}. Wearing {c.wardrobe}."
     if c.accessories:
@@ -62,6 +73,7 @@ def build_prompt(spec: ShotSpec, canon: Canon, has_previous: bool = False) -> st
         cross_shot_note=CROSS_SHOT_NOTE if has_previous else NO_CROSS_SHOT_NOTE,
         prop_look_note="" if canon.props else "No prop is required, so set prop_look to null.",
         rules_block=rules_block(spec, canon),
+        pictures_note=pictures_note(picture_labels or []),
         action_note=(f"This shot is meant to show: {spec.action}\n"
                      if spec.action and spec.action != "uploaded clip" else ""),
     )
@@ -110,17 +122,23 @@ def check_clip(
     canon: Canon,
     previous_clip_path: Optional[str] = None,
     client=None,
+    pictures: Optional[list] = None,
 ) -> CriticResult:
     """Watch one clip (and optionally the shot before it) and return the result."""
     client = client or llm.get_client()
-    media = []
+    media, labels = [], []
+    for label, data, mime in pictures or []:
+        media.append(llm.image_part(data, mime))
+        labels.append(label)
+    fps = get_settings().critic_fps
     if previous_clip_path:
-        media.append(llm.upload_video(previous_clip_path, client=client))
-    media.append(llm.upload_video(clip_path, client=client))
+        media.append(llm.video_part(llm.upload_video(previous_clip_path, client=client), fps))
+    media.append(llm.video_part(llm.upload_video(clip_path, client=client), fps))
 
     result = llm.ask_json(
         purpose=f"critic:{spec.shot_id}",
-        prompt=build_prompt(spec, canon, has_previous=bool(previous_clip_path)),
+        prompt=build_prompt(spec, canon, has_previous=bool(previous_clip_path),
+                            picture_labels=labels),
         schema=CriticResult,
         media=media,
         model=get_settings().video_understanding_model or None,

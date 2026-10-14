@@ -19,7 +19,8 @@ def render() -> None:
         if episode.mode == "GENERATE":
             def reopen(episode_id=chosen):
                 st.session_state["episode_id"] = episode_id
-                st.session_state["screen"] = "New episode"
+                st.session_state["screen"] = "Make an episode"
+                st.session_state.pop("stage", None)
 
             st.button("Continue working on this episode", on_click=reopen,
                       help="Opens it in the episode screen to re-check, repair or export.")

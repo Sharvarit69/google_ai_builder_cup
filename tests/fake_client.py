@@ -49,7 +49,8 @@ class FakeClient:
                     if "appear" in note.lower() or "pops" in note.lower() else note[0].upper() + note[1:])
             return NS(text=json.dumps({"text": text, "applies_to_all_shots": general}))
         if "continuity checker" in prompt:
-            clip = media[-1].data
+            videos = [m for m in media if hasattr(m, "state")]
+            clip = videos[-1].data
             clip_open = any(k in clip for k in (b"lid off", b"it is open", b"it is: open"))
             bad_prop = clip_open != ("must be: OPEN" in prompt)
             bad_wardrobe = b"red kurta" in clip
@@ -83,7 +84,7 @@ class FakeClient:
                 "prop_look": check(bad_look, "square box" if bad_look else "as described") if has_prop else None,
                 "prop_state": check(bad_prop, "open" if bad_prop else "as expected"),
                 "scene": check(False, "one person, desk, day"),
-                "cross_shot": check(False, "same person") if len(media) == 2 else None,
+                "cross_shot": check(False, "same person") if len(videos) == 2 else None,
                 "violations": violations, "decision": "ACCEPT"}))
         raise AssertionError("unexpected prompt: " + prompt[:80])
 

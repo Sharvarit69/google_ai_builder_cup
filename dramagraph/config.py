@@ -22,6 +22,7 @@ class Settings:
     shot_seconds: int
     max_repairs: int
     max_gen_retries: int
+    critic_fps: float  # frames per second the critic samples; 0 means Gemini's default (about 1)
 
 
 def get_settings() -> Settings:
@@ -37,4 +38,5 @@ def get_settings() -> Settings:
         shot_seconds=int(env("SHOT_SECONDS", "8")),
         max_repairs=int(env("MAX_REPAIRS", "2")),
         max_gen_retries=int(env("MAX_GEN_RETRIES", "2")),
+        critic_fps=float(env("CRITIC_FPS", "0") or 0),
     )

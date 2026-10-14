@@ -17,12 +17,22 @@ class Beat(BaseModel):
     needs_second_person: bool = False
 
 
+class RefPicture(BaseModel):
+    """A reference picture of a character or prop, with a short label such as
+    "front", "side", "closed" or "open"."""
+
+    uri: str
+    label: str = ""
+    mime: str = "image/png"
+
+
 class Character(BaseModel):
     name: str
     appearance: str
     wardrobe: str
     accessories: list[str] = Field(default_factory=list)
     reference_image_uri: Optional[str] = None
+    pictures: list[RefPicture] = Field(default_factory=list)
 
 
 class Prop(BaseModel):
@@ -30,6 +40,7 @@ class Prop(BaseModel):
     description: str
     # The prop's state at the END of each shot, e.g. {"S1": "closed", "S4": "open"}
     state_by_shot: dict[str, str] = Field(default_factory=dict)
+    pictures: list[RefPicture] = Field(default_factory=list)
 
     def states_for(self, shot_id: str) -> tuple[str, str]:
         """(state at the start, state at the end) of a shot.
@@ -85,6 +96,7 @@ class CheckResult(BaseModel):
 
 class Violation(BaseModel):
     type: ViolationType
+    headline: str = ""          # a few plain words, e.g. "Lunch box is open, should be closed"
     timestamp_seconds: float = 0.0
     expected: str
     observed: str
@@ -101,6 +113,7 @@ class Observation(BaseModel):
     """Something odd the critic noticed that no check covers. Advisory only."""
 
     what: str
+    headline: str = ""          # a few plain words, e.g. "A note appears out of nowhere"
     timestamp_seconds: float = 0.0
     severity: Literal["major", "minor"] = "minor"   # major = a viewer would clearly notice
     suggested_fix: str = ""                         # what the shot should show instead
@@ -127,6 +140,8 @@ class Attempt(BaseModel):
     critic: Optional[CriticResult] = None
     error: Optional[str] = None
     seeded: bool = False  # True if an error was planted on purpose for a test
+    references_used: list[str] = Field(default_factory=list)  # pictures sent to Veo
+    references_refused: list[str] = Field(default_factory=list)  # pictures Veo would not take
     rejected: bool = False  # True if the creator rejected a clip the critic had passed
 
 

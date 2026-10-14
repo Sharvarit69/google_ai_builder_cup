@@ -1,6 +1,5 @@
 """Story beats -> one shot specification per beat."""
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel
 

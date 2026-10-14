@@ -340,6 +340,7 @@ def test_reference_picture_is_sent_and_dropped_if_rejected(client):
     storage.save_bytes(generator.reference_path("ep1"), b"png-bytes")
     pipeline.run_generation(ep)
     assert client.veo_prompts[0][1] is True
+    assert ep.shots[0].attempts[0].references_used and not ep.shots[0].attempts[0].references_refused
 
     ep2 = planned_episode(1)
     ep2.episode_id = "ep2"
@@ -347,6 +348,10 @@ def test_reference_picture_is_sent_and_dropped_if_rejected(client):
     client.veo_errors = [RuntimeError("400 reference images are not supported by this model")]
     pipeline.run_generation(ep2)
     assert client.veo_prompts[-1][1] is False and ep2.shots[0].status == "ACCEPTED"
+    made = ep2.shots[0].attempts[0]
+    assert made.references_used == [] and made.references_refused   # recorded, not silent
+    from dramagraph.qa_report import build_report, report_to_markdown
+    assert "Made without the reference pictures" in report_to_markdown(build_report(ep2))
 
 
 def test_dropped_shot_is_skipped_for_cross_shot_comparison(client):
@@ -505,10 +510,20 @@ def test_creator_catch_becomes_a_rule_for_every_shot_and_future_episodes(client)
     assert "Rules learned from the creator: 1" in report_to_markdown(ep.report)
     assert "applies to every shot" in report_to_markdown(ep.report)
 
-    # a brand new episode starts with what this one taught
-    assert [r.text for r in learning.library()] == [rule.text]
+    # rules stay in their episode: nothing reaches other people's episodes by itself
+    assert learning.library() == []
+    assert planned_episode(1).canon.rules == []
+
+    # kept on purpose, a rule is offered to a new episode, but only added on request
+    learning.remember(rule)
     fresh = planned_episode(1)
-    assert [(r.text, r.source) for r in fresh.canon.rules] == [(rule.text, "library")]
+    assert fresh.canon.rules == []
+    offer = learning.offered(fresh.canon)
+    assert [(r.text, r.source) for r in offer] == [(rule.text, "library")]
+    learning.add_rule(fresh.canon, offer[0])
+    assert learning.offered(fresh.canon) == []
+    learning.forget(rule.text)
+    assert learning.library() == [] and not learning.is_kept(rule.text)
 
 
 def test_a_broken_rule_triggers_repair_with_the_rule_as_the_fix(client):
@@ -715,3 +730,155 @@ def test_restoring_a_good_shot_brings_it_straight_back(client):
     pipeline.drop(ep, "S1")
     pipeline.restore(ep, "S1")
     assert ep.shots[0].status == "ACCEPTED" and ep.shots[0].chosen_attempt == 1
+
+
+# ---------- pictures, plain-language problems, direct shot edits ----------
+
+PNG = b"\x89PNG\r\n\x1a\nfake"
+
+
+def test_pictures_are_picked_per_shot_by_matching_the_prop_state(client):
+    from dramagraph import pictures
+    ep = planned_episode()
+    pictures.add_picture(ep, "character", PNG, "priya.png", "Front")
+    pictures.add_picture(ep, "character", PNG, "priya2.png", "side")
+    pictures.add_picture(ep, "steel lunch box", PNG, "box.jpg", "closed")
+    pictures.add_picture(ep, "steel lunch box", PNG, "open.jpg", "open")
+    s1, s4 = ep.shots[0].spec, ep.shots[3].spec
+    names = lambda spec: [pictures.describe(o, p) for o, p in pictures.pick_for_shot(ep, spec)]
+    assert names(s1) == ["Priya (front)", "steel lunch box (closed)", "Priya (side)"]
+    assert names(s4) == ["Priya (front)", "steel lunch box (open)", "Priya (side)"]
+    assert len(pictures.all_pictures(ep)) == 4
+    with pytest.raises(ValueError, match="PNG or JPG"):
+        pictures.add_picture(ep, "character", PNG, "x.gif", "")
+    with pytest.raises(ValueError, match="permission"):
+        pictures.add_picture(ep, "character", PNG, "x.png", "", consent=False)
+    pictures.add_picture(ep, "character", PNG, "p3.png", "back")
+    with pytest.raises(ValueError, match="3 pictures"):
+        pictures.add_picture(ep, "character", PNG, "p4.png", "")
+    pictures.remove_picture(ep, "character", ep.canon.character.pictures[0].uri)
+    assert [p.label for p in storage.load_episode("ep1").canon.character.pictures] == ["side", "back"]
+
+
+def test_veo_gets_up_to_three_pictures_and_the_attempt_records_them(client):
+    from dramagraph import pictures
+    ep = planned_episode(1)
+    pictures.add_picture(ep, "character", PNG, "priya.png", "front")
+    pictures.add_picture(ep, "steel lunch box", PNG, "box.png", "closed")
+    pipeline.run_generation(ep)
+    assert client.veo_prompts[0][1] is True
+    assert ep.shots[0].attempts[0].references_used and not ep.shots[0].attempts[0].references_refused
+    assert ep.shots[0].attempts[0].references_used == ["Priya (front)", "steel lunch box (closed)"]
+
+
+def test_problems_read_as_plain_language(client):
+    from dramagraph import problems
+    ep = planned_episode(2)
+    ep.shots[1].spec.action = "She pulls it closer. extra finger"
+    ep.seeded_error = SeededError(shot_id="S1", kind="prop", value="open, with the lid off")
+    pipeline.run_generation(ep)
+    first = problems.for_critic(ep.shots[0].attempts[0].critic)
+    assert first[0].severity == "major" and first[0].fix == "closed." and "Expected closed" in first[0].detail
+    shot2 = problems.for_shot(ep.shots[1])
+    assert [p.severity for p in shot2] == ["major", "minor"]
+    assert shot2[0].fix == "Both hands have five fingers throughout."
+    assert problems.one_line(ep.shots[0]) == "All checks passed"
+    assert problems.one_line(ep.shots[1]) == "2 problems: A sixth finger appears on…, The desk lamp flickers once"
+    pipeline.drop(ep, "S2")
+    assert problems.one_line(ep.shots[1]) == "Left out of the video"
+
+
+def test_unclear_checks_become_minor_problems_without_a_fix():
+    from dramagraph import problems
+    from dramagraph.models import CheckResult, CriticResult
+    ok = CheckResult(verdict="match", observed="ok")
+    r = CriticResult(wardrobe=ok, scene=ok, prop_state=CheckResult(verdict="unclear", observed="her hand covers the lid"))
+    found = problems.for_critic(r)
+    assert [(p.severity, p.headline, p.fix) for p in found] == [("minor", "Could not see the prop's state clearly", "")]
+
+
+def test_shots_can_be_edited_directly_but_keep_their_requirements(client):
+    ep = planned_episode(2)
+    pipeline.edit_shots(ep, {"S2": ("Close-up: her hands grip the box", "close-up on hands")})
+    s2 = ep.shots[1].spec
+    assert s2.action == "Close-up: her hands grip the box" and s2.shot_type == "close-up on hands"
+    assert "steel lunch box: open and empty" in s2.must_show
+    assert "CAMERA: vertical 9:16, close-up on hands. One continuous take." in compile_prompt(s2, ep.canon)
+    assert storage.load_episode("ep1").shots[1].spec.action.startswith("Close-up")
+
+
+def test_critic_is_told_about_the_pictures(client):
+    from dramagraph.critic import build_prompt
+    ep = planned_episode(1)
+    text = build_prompt(ep.shots[0].spec, ep.canon, picture_labels=["Priya (front)", "steel lunch box (closed)"])
+    assert "Picture 1: Priya (front)" in text and "Picture 2: steel lunch box (closed)" in text
+    assert "REFERENCE PICTURES" not in build_prompt(ep.shots[0].spec, ep.canon)
+
+
+
+# ---------- making rules visible from the Shots tab ----------
+
+def test_always_check_this_saves_a_rule_and_rechecks_for_free(client):
+    from dramagraph import problems
+    ep = planned_episode(2)
+    ep.shots[1].spec.action = "She pulls it closer. extra finger"
+    pipeline.run_generation(ep)
+    used, made = ration.used(), len(client.veo_prompts)
+    fix = problems.for_shot(ep.shots[1])[0].fix
+    assert problems.for_shot(ep.shots[1])[0].source == "observation"
+    assert pipeline.save_rule_and_recheck(ep, "S2", fix) is True
+    assert learning.has_rule(ep.canon, fix)
+    assert [len(s.attempts[-1].critic.rules) for s in ep.shots] == [0, 1]   # re-checked; rule is for shot 2
+    assert (ration.used(), len(client.veo_prompts)) == (used, made)             # no video made
+    assert pipeline.save_rule_and_recheck(ep, "S2", fix) is False              # already a rule
+
+
+def test_remake_can_skip_saving_the_rule(client):
+    ep = planned_episode(2)
+    pipeline.run_generation(ep)
+    pipeline.fix_shot(ep, "S2", "her watch stays on her left wrist", save_rule=False)
+    assert ep.canon.rules == [] and ep.shots[1].chosen_attempt == 2
+
+
+def test_a_fix_that_repeats_a_built_in_check_is_flagged_as_such(client):
+    from dramagraph import problems
+    ep = planned_episode(1)
+    ep.canon.character.wardrobe = "red kurta"
+    pipeline.run_generation(ep)
+    shot = ep.shots[0]
+    text, _ = pipeline.suggested_fix(shot)
+    assert pipeline.fix_only_repeats_a_check(shot, text)
+    assert not pipeline.fix_only_repeats_a_check(shot, text + " Also keep the lid on.")
+    assert problems.for_shot(shot)[0].source == "check"
+
+
+
+def test_a_failed_recheck_keeps_the_earlier_results(client):
+    """Found while testing: a re-check that could not reach Gemini wiped every result."""
+    ep = planned_episode(2)
+    pipeline.run_generation(ep)
+    before = [(s.status, s.attempts[0].critic.decision) for s in ep.shots]
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("503 service unavailable")
+
+    with pytest.raises(RuntimeError, match="earlier results were kept"):
+        pipeline.recheck(ep, check=broken)
+    assert [(s.status, s.attempts[0].critic.decision) for s in ep.shots] == before
+    assert "503" in ep.shots[0].attempts[0].error
+    with pytest.raises(RuntimeError, match="The rule was saved"):
+        pipeline.save_rule_and_recheck(ep, "S1", "her watch stays on her left wrist", check=broken)
+    assert len(ep.canon.rules) == 1
+    assert storage.load_episode("ep1").shots[0].status == "ACCEPTED"
+
+
+
+def test_combined_fix_saves_only_the_new_part_as_a_rule(client):
+    ep = planned_episode(2)
+    pipeline.run_generation(ep)
+    combined = "closed. Both hands have five fingers throughout."
+    pipeline.fix_shot(ep, "S2", combined, rule_note="Both hands have five fingers throughout.")
+    assert [r.from_note for r in ep.canon.rules] == ["Both hands have five fingers throughout."]
+    assert ep.shots[1].attempts[-1].prompt.count("FIX: closed. Both hands") == 1
+    pipeline.fix_shot(ep, "S1", "closed.", rule_note="")          # only built-in checks ticked
+    assert len(ep.canon.rules) == 1

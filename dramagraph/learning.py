@@ -1,8 +1,9 @@
 """Layer 3: checks that come from people.
 
 When a creator spots a problem the critic missed, their note becomes a rule the
-critic checks from then on. Rules that apply to any video are also kept in a
-shared library, so new episodes start with what earlier ones taught.
+critic checks from then on. Rules stay in their own episode. A creator can keep a
+general rule on purpose; kept rules are offered to new episodes, never added to
+them silently, because the deployed app is shared by everyone with the link.
 """
 import json
 from pathlib import Path
@@ -43,8 +44,6 @@ def add_rule(canon: Canon, rule: LearnedRule) -> bool:
     if len(canon.rules) >= MAX_RULES:
         raise ValueError(f"An episode can hold {MAX_RULES} rules. Remove one in section 3 first.")
     canon.rules.append(rule)
-    if not rule.shot_ids:
-        remember(rule)
     return True
 
 
@@ -59,8 +58,12 @@ def _save_library(rules: list[LearnedRule]) -> None:
     storage.save_bytes(LIBRARY, data)
 
 
+def is_kept(text: str) -> bool:
+    return any(r.text.strip().lower() == text.strip().lower() for r in library())
+
+
 def remember(rule: LearnedRule) -> None:
-    """Keep a general rule for future episodes."""
+    """Keep a general rule so new episodes can choose to use it."""
     rules = library()
     if any(r.text.strip().lower() == rule.text.strip().lower() for r in rules):
         return
@@ -72,6 +75,13 @@ def forget(text: str) -> None:
     _save_library([r for r in library() if r.text.strip().lower() != text.strip().lower()])
 
 
-def starting_rules() -> list[LearnedRule]:
-    """Rules a new episode begins with: everything general learned so far."""
-    return [r.model_copy() for r in library()]
+def offered(canon: Canon) -> list[LearnedRule]:
+    """Kept rules this episode does not have yet."""
+    return [r.model_copy() for r in library() if not has_rule(canon, r.text)]
+
+
+def has_rule(canon: Canon, text: str) -> bool:
+    """True if a rule already says this, or was made from these exact words."""
+    want = text.strip().rstrip(".").lower()
+    return any(want in (r.text.strip().rstrip(".").lower(), r.from_note.strip().rstrip(".").lower())
+               for r in canon.rules)

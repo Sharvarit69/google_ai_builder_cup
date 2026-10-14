@@ -145,3 +145,12 @@ def test_summarise():
         {"clip": "c", "outcome": "correct_accept", "sent_to_review": True},
     ])
     assert s["errors_caught"] == "1 of 2" and s["false_alarms"] == "0 of 1" and s["missed"] == ["b"]
+
+
+def test_critic_frame_rate_is_only_set_when_asked():
+    from types import SimpleNamespace as NS
+    from dramagraph import llm
+    handle = NS(uri="files/abc", mime_type="video/mp4", state=NS(name="ACTIVE"))
+    assert llm.video_part(handle) is handle               # default: unchanged
+    part = llm.video_part(handle, 4)
+    assert part.video_metadata.fps == 4 and part.file_data.file_uri == "files/abc"

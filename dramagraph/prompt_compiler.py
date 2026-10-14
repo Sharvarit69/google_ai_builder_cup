@@ -29,7 +29,8 @@ def compile_prompt(spec: ShotSpec, canon: Canon, fix_notes: str = "",
             text += f" At the start of the shot it is {start}. By the end of the shot it is {end}."
         lines.append(text)
     lines.append(f"LOCATION: {canon.location}, {canon.time_of_day}.")
-    lines.append(f"CAMERA: vertical 9:16, {spec.shot_type}, {spec.camera_motion}. One continuous take.")
+    camera = ", ".join(x for x in (spec.shot_type, spec.camera_motion) if x.strip())
+    lines.append(f"CAMERA: vertical 9:16, {camera}. One continuous take.")
     if spec.second_person:
         lines.append("A second person appears as hands only, never a face or body.")
     lines.append("DO NOT SHOW: other people's faces or bodies, text on screen, camera cuts.")

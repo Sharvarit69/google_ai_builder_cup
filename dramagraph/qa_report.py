@@ -26,6 +26,7 @@ def build_report(episode: Episode) -> dict:
                 "observations": [o.model_dump() for o in critic.observations] if critic else [],
                 "violations": [v.model_dump() for v in critic.violations] if critic else [],
                 "error": attempt.error if attempt else None,
+                "pictures_refused": bool(attempt and attempt.references_refused),
                 "seeded": any(a.seeded for a in shot.attempts),
                 "creator_catches": shot.creator_catches,
                 "had_error": any(a.critic and a.critic.decision == "REGENERATE"
@@ -90,6 +91,8 @@ def report_to_markdown(report: dict) -> str:
                      + (" (seeded test error)" if s["seeded"] else ""))
         if s["error"]:
             lines.append(f"- Could not be checked: {s['error']}")
+        if s.get("pictures_refused"):
+            lines.append("- Made without the reference pictures: Veo would not take them")
         for c in s.get("checks") or [{"label": k, "verdict": v} for k, v in s["verdicts"].items()]:
             lines.append(f"- {c['label']}: {c['verdict']}")
         for v in s["violations"]:

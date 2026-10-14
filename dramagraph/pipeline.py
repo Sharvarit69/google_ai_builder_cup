@@ -38,10 +38,23 @@ def _previous_clip(episode: Episode, shot: Shot) -> Optional[str]:
     return None
 
 
+def _pictures_for_critic(episode: Episode) -> list:
+    from . import pictures as pics
+
+    found = []
+    for owner, picture in pics.all_pictures(episode):
+        data = pics.load(picture)
+        if data:
+            found.append((pics.describe(owner, picture), data, picture.mime))
+    return found
+
+
 def _check(episode, shot, attempt, check) -> None:
     try:
-        attempt.critic = check(storage.local_copy(attempt.clip_uri), shot.spec, episode.canon,
-                               _previous_clip(episode, shot))
+        args = (storage.local_copy(attempt.clip_uri), shot.spec, episode.canon,
+                _previous_clip(episode, shot))
+        pictures = _pictures_for_critic(episode) if check is check_clip else []
+        attempt.critic = check(*args, pictures=pictures) if pictures else check(*args)
     except Exception as error:
         attempt.error = f"Critic failed: {error}"[:500]
 
@@ -184,18 +197,30 @@ def recheck(episode: Episode, on_progress: Progress = None, check=check_clip) ->
     """
     todo = [(shot, a) for shot in episode.shots if shot.status != "DROPPED"
             for a in shot.attempts if a.clip_uri]
+    failures: list[str] = []
     for i, (shot, attempt) in enumerate(todo):
         if on_progress:
             on_progress(f"Re-checking shot {shot.spec.shot_id[1:]}", i / max(1, len(todo)))
+        previous = attempt.critic
         attempt.critic, attempt.error = None, None
         _check(episode, shot, attempt, check)
+        if attempt.critic is None and previous is not None:
+            # The check failed (for example a network problem). Keep the earlier result
+            # rather than losing it; the error is recorded on the attempt.
+            attempt.critic = previous
+            failures.append(shot.spec.shot_id)
         is_last = all(s is not shot for s, _ in todo[i + 1:])
         if is_last:
             _settle(shot)   # settle before later shots compare against this one
         storage.save_episode(episode)
     if on_progress:
         on_progress("Done", 1.0)
-    return finish(episode)
+    finish(episode)
+    if failures:
+        names = ", ".join(sorted({f[1:] for f in failures}))
+        raise RuntimeError(f"Could not re-check shot {names}; their earlier results were kept. "
+                           "Try again in a minute.")
+    return episode
 
 
 def reject_and_fix(episode: Episode, shot_id: str, instruction: str,
@@ -208,6 +233,19 @@ def reject_and_fix(episode: Episode, shot_id: str, instruction: str,
     if _attempt(shot, shot.chosen_attempt) is None:
         raise ValueError("There is no clip to reject for this shot.")
     return fix_shot(episode, shot_id, instruction, generate, check, ask)
+
+
+def save_rule_and_recheck(episode: Episode, shot_id: str, note: str, ask=None,
+                          check=check_clip, on_progress: Progress = None) -> bool:
+    """'Always check this': add the rule, then check every existing clip against it.
+    Makes no new video. Returns False if the rule was already there."""
+    added = learn(episode, shot_id, note, "observation", ask)
+    if added:
+        try:
+            recheck(episode, on_progress=on_progress, check=check)
+        except RuntimeError as error:
+            raise RuntimeError(f"The rule was saved, but: {error}") from error
+    return added
 
 
 def learn(episode: Episode, shot_id: str, note: str, source: str, ask=None) -> bool:
@@ -243,8 +281,16 @@ def suggested_fix(shot: Shot) -> tuple[str, bool]:
     return "", False
 
 
+def fix_only_repeats_a_check(shot: Shot, instruction: str) -> bool:
+    """True if the instruction is the critic's own wording of a built-in check, which
+    is checked every time anyway, so saving it as a rule would add nothing."""
+    prefill, restates = suggested_fix(shot)
+    return restates and instruction.strip() == prefill
+
+
 def fix_shot(episode: Episode, shot_id: str, instruction: str,
-             generate=generator.generate_with_retries, check=check_clip, ask=None) -> Episode:
+             generate=generator.generate_with_retries, check=check_clip, ask=None,
+             save_rule: bool = True, rule_note: Optional[str] = None) -> Episode:
     """The one fix action. Regenerates the shot with the instruction.
 
     If the creator is fixing a clip the critic had passed, that clip is set aside and
@@ -257,16 +303,19 @@ def fix_shot(episode: Episode, shot_id: str, instruction: str,
         raise ValueError("Say what should be shown, then press Fix.")
     if ration_left() < shot.spec.duration_seconds:
         raise ValueError("The Veo ration is used up, so the shot cannot be regenerated.")
-    prefill, restates_check = suggested_fix(shot)
+    repeats_check = fix_only_repeats_a_check(shot, instruction)
     current = _attempt(shot, shot.chosen_attempt)
     if current is not None and shot.status in ("ACCEPTED", "OVERRULED"):
         current.rejected = True
         shot.creator_catches += 1
     set_aside = current if current is not None and current.rejected else None
     was_pinned, shot.pinned_attempt = shot.pinned_attempt, None
-    if not (restates_check and instruction == prefill):
+    # rule_note lets the screen save only the part of a combined fix that is new,
+    # leaving out parts that just repeat a built-in check.
+    note = instruction if rule_note is None else rule_note.strip()
+    if save_rule and note and not (rule_note is None and repeats_check):
         try:
-            learn(episode, shot_id, instruction, "creator_catch", ask)
+            learn(episode, shot_id, note, "creator_catch", ask)
         except ValueError:
             pass    # the episode already holds the maximum number of rules; still fix the shot
     made_before = sum(1 for a in shot.attempts if a.clip_uri)
@@ -280,6 +329,27 @@ def fix_shot(episode: Episode, shot_id: str, instruction: str,
             shot.pinned_attempt = was_pinned
             _settle(shot)
             finish(episode)
+    return episode
+
+
+def edit_shots(episode: Episode, changes: dict) -> Episode:
+    """Direct edits to shot descriptions: {shot_id: (what happens, camera)}.
+
+    The continuity requirements are re-applied, so an edit cannot remove them.
+    A changed shot keeps the clips it has; the change applies to the next version made.
+    """
+    from .planner import apply_rules
+
+    for shot in episode.shots:
+        if shot.spec.shot_id not in changes:
+            continue
+        action, camera = changes[shot.spec.shot_id]
+        if action.strip():
+            shot.spec.action = action.strip()
+        if camera.strip():
+            shot.spec.shot_type, shot.spec.camera_motion = camera.strip(), ""
+    apply_rules([s.spec for s in episode.shots], episode.canon)
+    storage.save_episode(episode)
     return episode
 
 
