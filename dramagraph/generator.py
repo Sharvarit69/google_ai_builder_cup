@@ -104,7 +104,10 @@ def generate_clip(episode: Episode, shot: Shot, prompt: str, kind: str,
             words = str(error).lower()
             if not reference or not ("reference" in words or "image" in words):
                 raise
-            data = veo(prompt, None)  # the model would not take the pictures; go without
+            # the model would not take the pictures; go without, and say so, because a
+            # version made without them is the likely cause of any character drift
+            attempt.references_refused = used
+            data = veo(prompt, None)
         storage.save_bytes(path, data)
         attempt.clip_uri = path
         episode.seconds_generated += seconds

@@ -130,9 +130,10 @@ def check_clip(
     for label, data, mime in pictures or []:
         media.append(llm.image_part(data, mime))
         labels.append(label)
+    fps = get_settings().critic_fps
     if previous_clip_path:
-        media.append(llm.upload_video(previous_clip_path, client=client))
-    media.append(llm.upload_video(clip_path, client=client))
+        media.append(llm.video_part(llm.upload_video(previous_clip_path, client=client), fps))
+    media.append(llm.video_part(llm.upload_video(clip_path, client=client), fps))
 
     result = llm.ask_json(
         purpose=f"critic:{spec.shot_id}",

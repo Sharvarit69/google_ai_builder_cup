@@ -340,6 +340,7 @@ def test_reference_picture_is_sent_and_dropped_if_rejected(client):
     storage.save_bytes(generator.reference_path("ep1"), b"png-bytes")
     pipeline.run_generation(ep)
     assert client.veo_prompts[0][1] is True
+    assert ep.shots[0].attempts[0].references_used and not ep.shots[0].attempts[0].references_refused
 
     ep2 = planned_episode(1)
     ep2.episode_id = "ep2"
@@ -347,6 +348,10 @@ def test_reference_picture_is_sent_and_dropped_if_rejected(client):
     client.veo_errors = [RuntimeError("400 reference images are not supported by this model")]
     pipeline.run_generation(ep2)
     assert client.veo_prompts[-1][1] is False and ep2.shots[0].status == "ACCEPTED"
+    made = ep2.shots[0].attempts[0]
+    assert made.references_used == [] and made.references_refused   # recorded, not silent
+    from dramagraph.qa_report import build_report, report_to_markdown
+    assert "Made without the reference pictures" in report_to_markdown(build_report(ep2))
 
 
 def test_dropped_shot_is_skipped_for_cross_shot_comparison(client):
@@ -505,10 +510,20 @@ def test_creator_catch_becomes_a_rule_for_every_shot_and_future_episodes(client)
     assert "Rules learned from the creator: 1" in report_to_markdown(ep.report)
     assert "applies to every shot" in report_to_markdown(ep.report)
 
-    # a brand new episode starts with what this one taught
-    assert [r.text for r in learning.library()] == [rule.text]
+    # rules stay in their episode: nothing reaches other people's episodes by itself
+    assert learning.library() == []
+    assert planned_episode(1).canon.rules == []
+
+    # kept on purpose, a rule is offered to a new episode, but only added on request
+    learning.remember(rule)
     fresh = planned_episode(1)
-    assert [(r.text, r.source) for r in fresh.canon.rules] == [(rule.text, "library")]
+    assert fresh.canon.rules == []
+    offer = learning.offered(fresh.canon)
+    assert [(r.text, r.source) for r in offer] == [(rule.text, "library")]
+    learning.add_rule(fresh.canon, offer[0])
+    assert learning.offered(fresh.canon) == []
+    learning.forget(rule.text)
+    assert learning.library() == [] and not learning.is_kept(rule.text)
 
 
 def test_a_broken_rule_triggers_repair_with_the_rule_as_the_fix(client):
@@ -752,6 +767,7 @@ def test_veo_gets_up_to_three_pictures_and_the_attempt_records_them(client):
     pictures.add_picture(ep, "steel lunch box", PNG, "box.png", "closed")
     pipeline.run_generation(ep)
     assert client.veo_prompts[0][1] is True
+    assert ep.shots[0].attempts[0].references_used and not ep.shots[0].attempts[0].references_refused
     assert ep.shots[0].attempts[0].references_used == ["Priya (front)", "steel lunch box (closed)"]
 
 

@@ -141,6 +141,7 @@ class Attempt(BaseModel):
     error: Optional[str] = None
     seeded: bool = False  # True if an error was planted on purpose for a test
     references_used: list[str] = Field(default_factory=list)  # pictures sent to Veo
+    references_refused: list[str] = Field(default_factory=list)  # pictures Veo would not take
     rejected: bool = False  # True if the creator rejected a clip the critic had passed
 
 

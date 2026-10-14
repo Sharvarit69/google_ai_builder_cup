@@ -304,18 +304,29 @@ def _rules_card(ep) -> None:
     with st.container(border=True):
         _card_header(f"📏 Rules learned from you · {len(c.rules)}")
         st.caption("Checks that came from you, not from the built-in list. They are added when you "
-                   "fix a shot in your own words, or typed below. General ones carry over to new episodes.")
+                   "fix a shot in your own words, or typed below. They stay in this episode; "
+                   "click ☆ Keep on an every-shot rule to offer it to new episodes.")
         if not c.rules:
             st.write(":gray[No rules yet.]")
         for ri, rule in enumerate(c.rules):
             scope = "Every shot" if not rule.shot_ids else "Shot " + ", ".join(i[1:] for i in rule.shot_ids)
-            a, b, d, x = st.columns([6, 2, 1.4, 0.7])
+            a, b, d, k, x = st.columns([5.4, 1.8, 1.2, 1.1, 0.6])
             a.write(rule.text)
             b.caption(RULE_SOURCE.get(rule.source, ""))
             d.caption(scope)
-            if x.button("✕", key=f"rmrule_{ep.episode_id}_{ri}", help="Remove this rule"):
+            if not rule.shot_ids:
+                kept = learning.is_kept(rule.text)
+                if k.button("★ Kept" if kept else "☆ Keep", key=f"keeprule_{ep.episode_id}_{ri}",
+                            help=("Kept for new episodes. Click to stop offering it." if kept else
+                                  "Offer this rule to new episodes. It is never added to them without a click.")):
+                    if kept:
+                        learning.forget(rule.text)
+                    else:
+                        learning.remember(rule)
+                    st.toast("No longer offered to new episodes" if kept else "Kept. New episodes will offer it")
+                    st.rerun()
+            if x.button("✕", key=f"rmrule_{ep.episode_id}_{ri}", help="Remove from this episode"):
                 def work(i=ri):
-                    learning.forget(c.rules[i].text)
                     del c.rules[i]
                 _save(ep, work=work)
         a, b = st.columns([5, 1])
@@ -325,6 +336,18 @@ def _rules_card(ep) -> None:
         if b.button("Add rule", key=f"addrule_{ep.episode_id}", use_container_width=True,
                     disabled=not text.strip()):
             _save(ep, work=lambda: learning.add_rule(c, LearnedRule(text=text.strip(), source="manual")))
+        kept = learning.offered(c)
+        if kept:
+            with st.popover(f"Rules kept from earlier episodes · {len(kept)}"):
+                st.caption("Add the ones that fit this episode. ✕ stops offering a rule to anyone.")
+                for ki, rule in enumerate(kept):
+                    a, b, x = st.columns([6, 1.3, 0.7])
+                    a.write(rule.text)
+                    if b.button("Add", key=f"libadd_{ep.episode_id}_{ki}"):
+                        _save(ep, work=lambda r=rule: learning.add_rule(c, r))
+                    if x.button("✕", key=f"libdel_{ep.episode_id}_{ki}", help="Stop offering this rule"):
+                        learning.forget(rule.text)
+                        st.rerun()
 
 
 def _shots_card(ep) -> None:
@@ -553,7 +576,13 @@ def _checks_tab(shot) -> None:
 def _pictures_tab(shot) -> None:
     attempt = chosen(shot)
     used = attempt.references_used if attempt else []
-    if used:
+    refused = attempt.references_refused if attempt else []
+    if refused:
+        st.warning("Veo would not take the pictures for this version, so it was made without them. "
+                   "If the character or props look different from your pictures, this is the likely cause.")
+        for name in refused:
+            st.write(f"• :gray[{name} — not used]")
+    elif used:
         st.write("Pictures sent to Veo for this version:")
         for name in used:
             st.write(f"• {name}")
@@ -586,7 +615,8 @@ def _shot_panel(ep, shot) -> None:
             st.markdown(f"### Shot {sid[1:]} · {_short_status(shot)}")
             st.caption(f"Should show: {shot.spec.action}")
             count = len(problems.for_shot(shot))
-            tabs = st.tabs([f"Problems · {count}", "All checks", f"Versions · {len(made)}", "Pictures used"])
+            tabs = st.tabs([f"Problems · {count}", "All checks", f"Versions · {len(made)}",
+                            "Pictures used" + (" ⚠" if attempt and attempt.references_refused else "")])
             with tabs[0]:
                 _problems_tab(ep, shot)
             with tabs[1]:
@@ -632,14 +662,14 @@ def _decision(ep, shot) -> None:
     rule_note = fix.strip() if edited else " ".join(p.fix for p in ticked if p.source != "check")
     already = bool(rule_note) and learning.has_rule(ep.canon, rule_note)
     if fix.strip() and not rule_note:
-        save_rule = st.checkbox("Also save this as a rule (all shots, future episodes)", value=False,
+        save_rule = st.checkbox("Also save this as a rule for this episode", value=False,
                                 disabled=True, key=f"sr_{key}")
         st.caption("Not saved as a rule: these fixes are already checked on every clip.")
     elif already:
         save_rule = False
         st.caption("✓ This is already one of your rules.")
     else:
-        save_rule = st.checkbox("Also save this as a rule (all shots, future episodes)", value=True,
+        save_rule = st.checkbox("Also save this as a rule for this episode", value=True,
                                 key=f"sr_{key}", disabled=not fix.strip())
     unlocked = _unlock_box(f"fix_{sid}")
     a, r, b, c = st.columns([1.4, 1.6, 1.2, 1.2])

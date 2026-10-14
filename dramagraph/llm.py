@@ -142,6 +142,21 @@ def upload_video(path: str, client=None, sleep=time.sleep, timeout: int = 300):
     return handle
 
 
+def video_part(handle, fps: float = 0):
+    """An uploaded clip to send with a prompt, sampled at fps frames a second if given.
+
+    Gemini looks at about one frame a second by default, so a change that lasts
+    under a second can fall between frames. A higher rate costs more tokens."""
+    if not fps:
+        return handle
+    from google.genai import types
+
+    return types.Part(
+        file_data=types.FileData(file_uri=handle.uri, mime_type=handle.mime_type),
+        video_metadata=types.VideoMetadata(fps=fps),
+    )
+
+
 def image_part(data: bytes, mime: str = "image/png"):
     """A picture to send alongside a prompt."""
     from google.genai import types

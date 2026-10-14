@@ -1,6 +1,7 @@
-streamlit
-google-genai
-google-cloud-storage
-pydantic>=2
-python-dotenv
-pytest
+# Pinned so a new release cannot break the deployed demo. Upgrade on purpose, then run the tests.
+streamlit==1.65.0
+google-genai==2.29.0
+google-cloud-storage==3.17.0
+pydantic==2.13.5
+python-dotenv==1.2.3
+pytest==9.1.1
