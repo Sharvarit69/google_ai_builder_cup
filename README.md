@@ -28,7 +28,7 @@ Three layers, from most to least fixed:
 
 | Job | Model | Setting |
 |---|---|---|
-| Critic (watches each clip) | Gemini `TODO-model-name` | `VIDEO_UNDERSTANDING_MODEL` |
+| Critic (watches each clip) | Gemini `gemini-3.8-flash` | `VIDEO_UNDERSTANDING_MODEL` |
 | Planning (beats, details, shots, rules) | same as the critic unless set | `TEXT_MODEL` |
 | Video generation | Veo `veo-3.1-fast-generate-preview`, 8-second 9:16 clips at 720p | `VEO_MODEL` |
 
@@ -58,7 +58,7 @@ gcloud storage buckets create gs://YOUR_BUCKET --location=asia-southeast1
 
 gcloud run deploy dramagraph --source . --region asia-southeast1 \
   --set-secrets=GEMINI_API_KEY=gemini-key:latest,GEN_PASSCODE=gen-passcode:latest \
-  --set-env-vars=GCS_BUCKET=YOUR_BUCKET,VIDEO_UNDERSTANDING_MODEL=...,VEO_MODEL=veo-3.1-fast-generate-preview
+  --set-env-vars=GCS_BUCKET=YOUR_BUCKET,VIDEO_UNDERSTANDING_MODEL=gemini-3.8-flash,VEO_MODEL=veo-3.1-fast-generate-preview
 ```
 
 The Cloud Run service account needs *Secret Manager Secret Accessor* and access to the
