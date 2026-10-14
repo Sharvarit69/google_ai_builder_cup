@@ -513,31 +513,15 @@ def _problems_tab(ep, shot) -> None:
             if p.fix:
                 label = "Should be" if p.source == "check" else "Suggested fix"
                 st.markdown(f"**{label}:** {p.fix}")
-            a, b, c, _ = st.columns([1.2, 1.5, 1.4, 0.6])
+            a, b, c, _ = st.columns([1.2, 1.5, 1.6, 0.4])
             a.button(f"▶ Play from 0:{int(p.seconds):02d}", key=f"play_{sid}_{i}", use_container_width=True,
                      on_click=lambda t=p.seconds: st.session_state.update({f"t_{sid}": t}))
             if p.fix:
                 b.checkbox("Include in remake", key=_include_key(ep, shot, i), value=p.severity == "major")
             if p.source == "check":
-                c.caption("Already checked every time")
+                c.caption("Built-in check: runs on every clip")
             elif p.source == "rule" or (p.fix and learning.has_rule(ep.canon, p.fix)):
-                c.button("✓ Rule saved", key=f"saved_{sid}_{i}", disabled=True, use_container_width=True)
-            elif p.fix:
-                if c.button("Always check this", key=f"rule_{sid}_{i}", use_container_width=True,
-                            help="Saves the suggested fix as a rule and checks every clip against it "
-                                 "straight away. Makes no new video."):
-                    bar = st.progress(0.0, "Saving the rule and checking the clips")
-
-                    def work(f=p.fix):
-                        pipeline.save_rule_and_recheck(
-                            ep, sid, f, on_progress=lambda m, x: bar.progress(min(x, 1.0), m))
-                    rules_before = len(ep.canon.rules)
-                    ok = _run("Saving the rule", work)
-                    _reset_fix_boxes(ep)
-                    if len(ep.canon.rules) > rules_before:
-                        _announce_rule(ep, p.fix)
-                    if ok:
-                        st.rerun()
+                c.caption("✓ One of your rules")
 
 
 def _reset_fix_boxes(ep) -> None:
@@ -658,7 +642,7 @@ def _decision(ep, shot) -> None:
         save_rule = st.checkbox("Also save this as a rule (all shots, future episodes)", value=True,
                                 key=f"sr_{key}", disabled=not fix.strip())
     unlocked = _unlock_box(f"fix_{sid}")
-    a, b, c, _ = st.columns([1.4, 1.2, 1.2, 2])
+    a, r, b, c = st.columns([1.4, 1.6, 1.2, 1.2])
     if a.button(f"Remake shot {sid[1:]} · {shot.spec.duration_seconds}s", key=f"fixgo_{sid}",
                 type="primary", use_container_width=True, disabled=not (unlocked and fix.strip())):
         rules_before = len(ep.canon.rules)
@@ -666,6 +650,19 @@ def _decision(ep, shot) -> None:
                 lambda: pipeline.fix_shot(ep, sid, fix, save_rule=save_rule, rule_note=rule_note)):
             if len(ep.canon.rules) > rules_before:
                 _announce_rule(ep, fix)
+            st.rerun()
+    if r.button("Save as rule only · no video", key=f"ruleonly_{sid}", use_container_width=True,
+                disabled=not rule_note or already,
+                help="Saves the ticked fixes as a rule and checks every clip against it now. "
+                     "Keeps this clip; makes no new video."):
+        bar = st.progress(0.0, "Saving the rule and checking the clips")
+        rules_before = len(ep.canon.rules)
+        ok = _run("Saving the rule", lambda: pipeline.save_rule_and_recheck(
+            ep, sid, rule_note, on_progress=lambda m, x: bar.progress(min(x, 1.0), m)))
+        if len(ep.canon.rules) > rules_before:
+            _announce_rule(ep, rule_note)
+        _reset_fix_boxes(ep)
+        if ok:
             st.rerun()
     if needs and b.button("Keep it as it is", key=f"ok_{sid}", use_container_width=True,
                           disabled=pipeline.latest_clip(shot) is None):
