@@ -854,3 +854,15 @@ def test_a_failed_recheck_keeps_the_earlier_results(client):
         pipeline.save_rule_and_recheck(ep, "S1", "her watch stays on her left wrist", check=broken)
     assert len(ep.canon.rules) == 1
     assert storage.load_episode("ep1").shots[0].status == "ACCEPTED"
+
+
+
+def test_combined_fix_saves_only_the_new_part_as_a_rule(client):
+    ep = planned_episode(2)
+    pipeline.run_generation(ep)
+    combined = "closed. Both hands have five fingers throughout."
+    pipeline.fix_shot(ep, "S2", combined, rule_note="Both hands have five fingers throughout.")
+    assert [r.from_note for r in ep.canon.rules] == ["Both hands have five fingers throughout."]
+    assert ep.shots[1].attempts[-1].prompt.count("FIX: closed. Both hands") == 1
+    pipeline.fix_shot(ep, "S1", "closed.", rule_note="")          # only built-in checks ticked
+    assert len(ep.canon.rules) == 1

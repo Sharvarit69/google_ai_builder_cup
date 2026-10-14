@@ -290,7 +290,7 @@ def fix_only_repeats_a_check(shot: Shot, instruction: str) -> bool:
 
 def fix_shot(episode: Episode, shot_id: str, instruction: str,
              generate=generator.generate_with_retries, check=check_clip, ask=None,
-             save_rule: bool = True) -> Episode:
+             save_rule: bool = True, rule_note: Optional[str] = None) -> Episode:
     """The one fix action. Regenerates the shot with the instruction.
 
     If the creator is fixing a clip the critic had passed, that clip is set aside and
@@ -310,9 +310,12 @@ def fix_shot(episode: Episode, shot_id: str, instruction: str,
         shot.creator_catches += 1
     set_aside = current if current is not None and current.rejected else None
     was_pinned, shot.pinned_attempt = shot.pinned_attempt, None
-    if save_rule and not repeats_check:
+    # rule_note lets the screen save only the part of a combined fix that is new,
+    # leaving out parts that just repeat a built-in check.
+    note = instruction if rule_note is None else rule_note.strip()
+    if save_rule and note and not (rule_note is None and repeats_check):
         try:
-            learn(episode, shot_id, instruction, "creator_catch", ask)
+            learn(episode, shot_id, note, "creator_catch", ask)
         except ValueError:
             pass    # the episode already holds the maximum number of rules; still fix the shot
     made_before = sum(1 for a in shot.attempts if a.clip_uri)

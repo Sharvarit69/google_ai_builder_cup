@@ -476,6 +476,19 @@ def _fix_key(ep, shot) -> str:
     return f"fix_{ep.episode_id}_{shot.spec.shot_id}_{len(shot.attempts)}"
 
 
+def _include_key(ep, shot, i: int) -> str:
+    return f"inc_{ep.episode_id}_{shot.spec.shot_id}_{len(shot.attempts)}_{i}"
+
+
+def _ticked(ep, shot) -> list:
+    """The problems whose 'Include in remake' box is ticked (majors start ticked)."""
+    from dramagraph import problems
+
+    found = problems.for_shot(shot)
+    return [p for i, p in enumerate(found)
+            if p.fix and st.session_state.get(_include_key(ep, shot, i), p.severity == "major")]
+
+
 def _problems_tab(ep, shot) -> None:
     from dramagraph import problems
 
@@ -500,12 +513,11 @@ def _problems_tab(ep, shot) -> None:
             if p.fix:
                 label = "Should be" if p.source == "check" else "Suggested fix"
                 st.markdown(f"**{label}:** {p.fix}")
-            a, b, c, _ = st.columns([1.3, 1.1, 1.4, 1])
+            a, b, c, _ = st.columns([1.2, 1.5, 1.4, 0.6])
             a.button(f"▶ Play from 0:{int(p.seconds):02d}", key=f"play_{sid}_{i}", use_container_width=True,
                      on_click=lambda t=p.seconds: st.session_state.update({f"t_{sid}": t}))
             if p.fix:
-                b.button("Use this fix", key=f"use_{sid}_{i}", use_container_width=True,
-                         on_click=lambda f=p.fix: st.session_state.update({_fix_key(ep, shot): f}))
+                b.checkbox("Include in remake", key=_include_key(ep, shot, i), value=p.severity == "major")
             if p.source == "check":
                 c.caption("Already checked every time")
             elif p.source == "rule" or (p.fix and learning.has_rule(ep.canon, p.fix)):
@@ -618,32 +630,40 @@ def _decision(ep, shot) -> None:
         st.markdown(f"##### What do you want to do with shot {sid[1:]}?")
     elif not st.toggle("Something wrong with this shot?", key=f"wrong_{sid}"):
         return
-    key = _fix_key(ep, shot)
-    if key not in st.session_state:
-        st.session_state[key] = pipeline.suggested_fix(shot)[0]
-    fix = st.text_input("What should this shot show instead?", key=key,
-                        placeholder="the note is already inside the box when the lid comes off",
-                        help="Filled in from the fix you chose above. Edit freely.")
-    repeats = bool(fix.strip()) and pipeline.fix_only_repeats_a_check(shot, fix)
-    already = bool(fix.strip()) and learning.has_rule(ep.canon, fix)
-    if repeats:
+    ticked = _ticked(ep, shot)
+    joined = " ".join(p.fix for p in ticked)
+    key, last = _fix_key(ep, shot), f"joined_{_fix_key(ep, shot)}"
+    if key not in st.session_state or st.session_state.get(last) != joined:
+        st.session_state[key] = joined          # the ticks changed, so rebuild the text
+        st.session_state[last] = joined
+    if ticked:
+        st.write(f"Remake shot {sid[1:]} to fix **{len(ticked)} problem{'s' if len(ticked) > 1 else ''}**: "
+                 + "; ".join(p.headline for p in ticked))
+    else:
+        st.write("Tick the problems above to include their fixes, or type below what the shot should show.")
+    fix = st.text_input("What the remake will ask for (edit freely)", key=key,
+                        placeholder="the note is already inside the box when the lid comes off")
+    edited = fix.strip() != joined.strip()
+    # Only fixes that go beyond the built-in checks are worth keeping as rules.
+    rule_note = fix.strip() if edited else " ".join(p.fix for p in ticked if p.source != "check")
+    already = bool(rule_note) and learning.has_rule(ep.canon, rule_note)
+    if fix.strip() and not rule_note:
         save_rule = st.checkbox("Also save this as a rule (all shots, future episodes)", value=False,
-                                disabled=True, key=f"sr_{_fix_key(ep, shot)}",
-                                help="Not needed: this is already a built-in check that runs on every clip.")
-        st.caption("Not saved as a rule: this is already checked on every clip.")
+                                disabled=True, key=f"sr_{key}")
+        st.caption("Not saved as a rule: these fixes are already checked on every clip.")
     elif already:
         save_rule = False
         st.caption("✓ This is already one of your rules.")
     else:
         save_rule = st.checkbox("Also save this as a rule (all shots, future episodes)", value=True,
-                                key=f"sr_{_fix_key(ep, shot)}")
+                                key=f"sr_{key}", disabled=not fix.strip())
     unlocked = _unlock_box(f"fix_{sid}")
     a, b, c, _ = st.columns([1.4, 1.2, 1.2, 2])
     if a.button(f"Remake shot {sid[1:]} · {shot.spec.duration_seconds}s", key=f"fixgo_{sid}",
                 type="primary", use_container_width=True, disabled=not (unlocked and fix.strip())):
         rules_before = len(ep.canon.rules)
         if _run("Making and checking the shot. This takes a minute or two.",
-                lambda: pipeline.fix_shot(ep, sid, fix, save_rule=save_rule)):
+                lambda: pipeline.fix_shot(ep, sid, fix, save_rule=save_rule, rule_note=rule_note)):
             if len(ep.canon.rules) > rules_before:
                 _announce_rule(ep, fix)
             st.rerun()
