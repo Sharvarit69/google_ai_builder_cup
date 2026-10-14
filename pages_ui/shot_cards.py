@@ -60,13 +60,16 @@ def summary_line(shot: Shot) -> str:
     return text
 
 
-def show_summary(shot: Shot) -> None:
+def show_summary(shot: Shot, with_video: bool = True) -> None:
     """The clip in use, the status, and only what needs attention."""
     attempt = chosen(shot)
     st.markdown(f"**Shot {shot.spec.shot_id[1:]}** · {STATUS.get(shot.status, shot.status)}")
-    left, right = st.columns([1, 2])
-    with left:
-        play(attempt.clip_uri if attempt else None)
+    if with_video:
+        left, right = st.columns([1, 2])
+        with left:
+            play(attempt.clip_uri if attempt else None)
+    else:
+        right = st.container()
     with right:
         st.write(summary_line(shot))
         if attempt is None:
@@ -136,15 +139,15 @@ def show_attempts(shot: Shot, on_use=None) -> None:
                         on_use(attempt.attempt_no)
 
 
-def show_shot(shot: Shot, key: str = "", on_use=None) -> None:
+def show_shot(shot: Shot, key: str = "", on_use=None, with_video: bool = True) -> None:
     """Summary, with details and all attempts behind switches so they load only when asked."""
-    show_summary(shot)
+    show_summary(shot, with_video)
     made = sum(1 for a in shot.attempts if a.clip_uri)
     sid = shot.spec.shot_id
     one, two = st.columns(2)
-    if one.toggle("All checks and minor findings", key=f"det_{key}_{sid}"):
+    if one.toggle("Show all checks", key=f"det_{key}_{sid}"):
         show_details(shot)
-    if made > 1 and two.toggle(f"All {made} clips made for this shot", key=f"att_{key}_{sid}"):
+    if made > 1 and two.toggle(f"Compare all {made} versions", key=f"att_{key}_{sid}"):
         show_attempts(shot, on_use)
 
 
