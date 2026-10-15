@@ -33,6 +33,8 @@ class Character(BaseModel):
     accessories: list[str] = Field(default_factory=list)
     reference_image_uri: Optional[str] = None
     pictures: list[RefPicture] = Field(default_factory=list)
+    approved: Optional[RefPicture] = None   # a sharp still from the first shot that passed
+    auto_look: bool = True                  # False once the creator removed an approved look
 
 
 class Prop(BaseModel):
@@ -41,6 +43,8 @@ class Prop(BaseModel):
     # The prop's state at the END of each shot, e.g. {"S1": "closed", "S4": "open"}
     state_by_shot: dict[str, str] = Field(default_factory=dict)
     pictures: list[RefPicture] = Field(default_factory=list)
+    approved: Optional[RefPicture] = None   # a sharp still from the first shot that passed
+    auto_look: bool = True                  # False once the creator removed an approved look
 
     def states_for(self, shot_id: str) -> tuple[str, str]:
         """(state at the start, state at the end) of a shot.
@@ -103,6 +107,19 @@ class Violation(BaseModel):
     timestamp_seconds: float = 0.0
     expected: str
     observed: str
+    crop_uri: Optional[str] = None    # close-ups that show the problem, if any
+
+
+class LookPoint(BaseModel):
+    """One point of how the character or a prop looks: shape, size, finish, colour..."""
+
+    item: str
+    point: str
+    verdict: Verdict
+    observed: str = ""
+    close_look: bool = False          # judged on sharp, enlarged still frames
+    crop_uri: Optional[str] = None    # the reference next to the close-ups
+    timestamp_seconds: float = 0.0
 
 
 class RuleCheck(BaseModel):
@@ -133,6 +150,7 @@ class CriticResult(BaseModel):
     scene: CheckResult
     cross_shot: Optional[CheckResult] = None  # None for the first shot
     rules: list[RuleCheck] = Field(default_factory=list)
+    look_points: list[LookPoint] = Field(default_factory=list)
     violations: list[Violation] = Field(default_factory=list)
     observations: list[Observation] = Field(default_factory=list)
     decision: Optional[Decision] = None  # set by code, never by the model

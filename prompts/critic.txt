@@ -14,14 +14,22 @@ Use "unclear" only when the item is hidden, blurred or out of frame.
 If you can see it and it agrees, the verdict is "match".
 If a required prop is not in the video at all, prop_state is "mismatch".
 
-prop_look asks whether each prop is the object described: the same shape,
-the same number of parts or tiers, the same material and colour. A round
-single-tier tin and a square box, or a stacked three-tier carrier, are
-different objects, so that is a "mismatch". Small differences in size or
-shine are fine. {prop_look_note}
+prop_look asks whether each prop is the object described, and looks the same
+as in any reference picture. Judge it point by point and give one entry per
+point under "look_points", for every prop:
+  "shape"     - the overall shape
+  "parts"     - the number of parts (lids, handles, tiers, compartments)
+  "size"      - its size compared with the person
+  "finish"    - the material and finish (shiny, brushed, matte, glossy)
+  "colour"    - the colour and any markings
+Each entry has "item" (the prop's name), "point" (one of the five words
+above), "verdict" and "observed" (what you actually see, in a few words).
+A clear difference in any point is a "mismatch", including a change of
+finish (shiny to matte) or a clearly different size. If any point is a
+mismatch, prop_look is "mismatch". {prop_look_note}
 
 For the fixed checks, judge only the items listed under EXPECTED. Do not mark a mismatch for the
-exact position of an object (on the desk or in her lap), for background
+exact position of an object (on a table or in a hand), for background
 objects, for the time shown on a clock, or for writing that is unreadable.
 If the person is visibly a different person, or wears different clothes,
 wardrobe is "mismatch".
@@ -29,8 +37,8 @@ wardrobe is "mismatch".
 {rules_block}
 For every mismatch add one violation. Its type must be WARDROBE, PROP_LOOK,
 PROP_STATE, SCENE, CROSS_SHOT or RULE. Give a "headline" of at most eight
-plain words that a non-expert understands (for example "Lunch box is open,
-should be closed"), the second it first appears, what was expected and what
+plain words that a non-expert understands (for example "Mug has two
+handles, should have one"), the second it first appears, what was expected and what
 you observed. If nothing is wrong, violations is
 an empty list.
 {cross_shot_note}
@@ -40,7 +48,7 @@ above do not cover. For example: an object that appears from nowhere, vanishes
 or changes into something else; a hand or face that deforms; an action that
 contradicts what the shot is meant to show; something physically impossible.
 {action_note}For each one give:
-- "headline": at most eight plain words, for example "A note appears out of nowhere"
+- "headline": at most eight plain words, for example "A cup appears out of nowhere"
 - "what": the problem, in one sentence
 - "timestamp_seconds": when it happens
 - "severity": "major" if it breaks the story or an ordinary viewer would

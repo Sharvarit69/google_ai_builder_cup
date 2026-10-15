@@ -45,7 +45,8 @@ def for_critic(critic: Optional[CriticResult]) -> list[Problem]:
         headline = _clean(v.headline) or f"{LABELS.get(v.type, v.type)}: {_short(v.observed, 6)}"
         found.append(Problem("major", v.timestamp_seconds, headline,
                              f"Expected {_clean(v.expected)}; saw {_clean(v.observed)}.",
-                             _clean(v.expected) + ".", "rule" if v.type == "RULE" else "check"))
+                             _clean(v.expected) + ".", "rule" if v.type == "RULE" else "check",
+                             v.crop_uri))
     reported = {_clean(v.expected).lower() for v in critic.violations}
     for r in critic.rules:
         if r.verdict == "mismatch" and _clean(r.rule).lower() not in reported:

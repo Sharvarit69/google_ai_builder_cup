@@ -5,7 +5,7 @@ note into ONE rule that a continuity checker can verify by watching a clip.
   situation, not the mistake. No shot numbers.
 - "applies_to_all_shots": true if the rule should hold in every shot of any
   video (for example "No object appears or vanishes without someone causing
-  it", or "The lunch box always has two tiers"). false if it is only about
+  it", or "The mug always has one handle"). false if it is only about
   what happens in this particular shot.
 - "close_look": true if checking the rule means reading or counting a small
   detail (the time on a clock or watch, written text, a number, a logo, the

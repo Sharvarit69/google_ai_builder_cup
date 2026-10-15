@@ -165,18 +165,24 @@ def _picture_strip(ep, owner: str, pictures_list, consent_needed: bool) -> None:
     """Thumbnails with labels, a remove button each, and an Add picture box."""
     from dramagraph import pictures as pics
 
+    item = ep.canon.character if owner == "character" else pics._owner(ep.canon, owner)
     shown = list(pictures_list)
     if owner == "character" and not shown:
         shown = pics.character_pictures(ep)
+    elif not shown and item.approved:
+        shown = [item.approved]
     cols = st.columns(pics.MAX_PER_ITEM)
     for col, picture in zip(cols, shown):
         with col:
             data = pics.load(picture)
             if data:
                 st.image(data, use_container_width=True)
-            st.caption(picture.label or "no label")
-            if picture in pictures_list and st.button("✕", key=f"rmpic_{picture.uri}",
-                                                      help="Remove this picture"):
+            approved = item.approved is not None and picture.uri == item.approved.uri
+            st.caption((picture.label or "no label") + (" (auto)" if approved else ""))
+            if (picture in pictures_list or approved) and st.button(
+                    "✕", key=f"rmpic_{picture.uri}",
+                    help=("Stop using this approved look. Add your own picture instead if you want one"
+                          if approved else "Remove this picture")):
                 _save(ep, work=lambda u=picture.uri: pics.remove_picture(ep, owner, u))
     if len(pictures_list) >= pics.MAX_PER_ITEM:
         return
@@ -538,8 +544,12 @@ def _problems_tab(ep, shot) -> None:
                 st.markdown(f"**{label}:** {p.fix}")
             if p.image and storage.exists(p.image):
                 st.image(storage.load_bytes(p.image), width=520)
-                st.caption("Close look: sharp frames from the clip, enlarged where the detail is. "
-                           "The outlined one is what the critic read.")
+                if p.source == "rule":
+                    st.caption("Close look: sharp frames from the clip, enlarged where the detail is. "
+                               "The outlined one is what the critic read.")
+                else:
+                    st.caption("Close look: the reference on the left, then sharp close-ups "
+                               "from this clip.")
             if p.review_only and p.severity == "major":
                 st.caption("Sent to you instead of remade automatically: video models often "
                            "cannot draw details like an exact time, so a remake may not fix it.")

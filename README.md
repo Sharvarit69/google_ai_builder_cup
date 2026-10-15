@@ -16,7 +16,12 @@ Working: script to story beats, character and prop details, shot plan, Veo gener
 Three layers, from most to least fixed:
 
 1. **Fixed checks** for every clip: wardrobe, prop appearance, prop state, scene, and a
-   comparison with the previous shot. A mismatch regenerates the shot.
+   comparison with the previous shot. A mismatch regenerates the shot. Looks are judged
+   point by point (shape, parts, size compared with the person, finish, colour; face,
+   clothes) on the video and again on sharp, enlarged still frames. When the first shot
+   passes, a still of the person and each prop becomes the **approved look**: later shots
+   and repairs are sent it as a reference picture and checked against it. A picture the
+   creator adds always takes its place.
 2. **Open observations**: the critic also watches like a script supervisor and reports
    anything else a viewer would find odd. These are advisory and never spend video budget.
 3. **Rules learned from the creator**: when a person spots a problem the critic missed, or

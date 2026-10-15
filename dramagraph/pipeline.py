@@ -49,14 +49,42 @@ def _pictures_for_critic(episode: Episode) -> list:
     return found
 
 
+def _references(episode: Episode) -> dict:
+    """The one picture each item's look is compared against: the creator's, or the approved look."""
+    from . import pictures as pics
+
+    found = {}
+    for owner in ["character"] + [p.name for p in episode.canon.props]:
+        picture = pics.reference(episode, owner)
+        data = pics.load(picture) if picture else None
+        if data:
+            own = not picture.label.startswith("approved look")
+            found[owner] = ("your picture" if own else picture.label, data)
+    return found
+
+
 def _check(episode, shot, attempt, check) -> None:
     try:
         args = (storage.local_copy(attempt.clip_uri), shot.spec, episode.canon,
                 _previous_clip(episode, shot))
-        pictures = _pictures_for_critic(episode) if check is check_clip else []
-        attempt.critic = check(*args, pictures=pictures) if pictures else check(*args)
+        if check is check_clip:
+            attempt.critic = check(*args, pictures=_pictures_for_critic(episode),
+                                   references=_references(episode))
+        else:
+            attempt.critic = check(*args)
     except Exception as error:
         attempt.error = f"Critic failed: {error}"[:500]
+
+
+def lock_looks(episode: Episode) -> list[str]:
+    """Keep a sharp still of the person and props from the first shot that passed, so
+    later shots and repairs are made and checked against it. Never stops the work."""
+    from . import looks
+
+    try:
+        return looks.lock(episode)
+    except Exception:
+        return []
 
 
 def _settle(shot: Shot) -> None:
@@ -108,12 +136,14 @@ def process_shot(episode: Episode, shot: Shot, generate, check) -> str:
             break
         attempt = retry
     _settle(shot)
+    lock_looks(episode)
     return "ok"
 
 
 def finish(episode: Episode) -> Episode:
     from .qa_report import build_report
 
+    lock_looks(episode)
     episode.status = "READY" if all(s.status in DONE for s in episode.shots) else "NEEDS_REVIEW"
     episode.final_video_uri = None      # any change makes an earlier export out of date
     episode.report = build_report(episode)

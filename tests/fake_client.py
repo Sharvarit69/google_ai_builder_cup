@@ -20,6 +20,7 @@ class FakeClient:
         # what the close look reads: (reading, confident, verdict)
         self.close_reading = ("about 12:15", True, "mismatch")
         self.close_prompts = []
+        self.look_mismatches = {}  # (item key, point) -> what the close look sees instead
 
     # --- text and video understanding ---
     def generate_content(self, model, contents, config=None):
@@ -45,6 +46,24 @@ class FakeClient:
             return NS(text=json.dumps({"shots": [
                 {"shot_type": "medium shot", "camera_motion": "static",
                  "action": f"action {i+1}", "second_person_hands": False} for i in range(n)]}))
+        if "Find each of these in every frame" in prompt:
+            self.close_prompts.append(prompt)
+            count = int(re.search(r"These are (\d+) still frames", prompt).group(1))
+            keys = re.findall(r'^- "([^"]+)":', prompt, re.M)
+            return NS(text=json.dumps({"items": [{"key": k, "boxes": [[250, 250, 750, 750]] * count}
+                                                 for k in keys]}))
+        if "look the same in every" in prompt:
+            self.close_prompts.append(prompt)
+            keys = re.findall(r'^- "([^"]+)":', prompt.split("WHAT EACH ITEM")[1], re.M)
+            points = []
+            for k in keys:
+                for point in (("face and hair", "clothes", "colours") if k == "person"
+                              else ("shape", "parts", "size", "finish", "colour")):
+                    bad = (k, point) in self.look_mismatches
+                    points.append({"key": k, "point": point, "verdict": "mismatch" if bad else "match",
+                                   "observed": self.look_mismatches.get((k, point), "as expected"),
+                                   "picture": 2})
+            return NS(text=json.dumps({"points": points}))
         if "needs a CLOSE LOOK" in prompt:
             rule = prompt.split("RULE:")[1].lower()
             return NS(text=json.dumps({"close_look": any(k in rule for k in ("clock", "sign", "written"))}))
