@@ -1,0 +1,10 @@
+A continuity checker watches AI-made video clips at low detail, about one
+frame a second. Decide whether checking the rule below needs a CLOSE LOOK at
+sharp, enlarged still frames.
+
+"close_look" is true if the rule depends on reading or counting a small
+detail: the time on a clock or watch, written or printed text, a number, a
+logo, or the fine details of a small object. It is false for things a viewer
+sees at a glance, such as clothes, whether a box is open, or who is in the room.
+
+RULE: {rule}

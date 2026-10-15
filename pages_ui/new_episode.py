@@ -536,6 +536,13 @@ def _problems_tab(ep, shot) -> None:
             if p.fix:
                 label = "Should be" if p.source == "check" else "Suggested fix"
                 st.markdown(f"**{label}:** {p.fix}")
+            if p.image and storage.exists(p.image):
+                st.image(storage.load_bytes(p.image), width=520)
+                st.caption("Close look: sharp frames from the clip, enlarged where the detail is. "
+                           "The outlined one is what the critic read.")
+            if p.review_only and p.severity == "major":
+                st.caption("Sent to you instead of remade automatically: video models often "
+                           "cannot draw details like an exact time, so a remake may not fix it.")
             a, b, c, _ = st.columns([1.2, 1.5, 1.6, 0.4])
             a.button(f"▶ Play from 0:{int(p.seconds):02d}", key=f"play_{sid}_{i}", use_container_width=True,
                      on_click=lambda t=p.seconds: st.session_state.update({f"t_{sid}": t}))

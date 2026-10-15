@@ -1,0 +1,21 @@
+These are enlarged close-ups of one object, cut from still frames of a video
+clip. {pictures}
+
+This rule must hold in the clip: {rule}
+
+Look carefully before answering.
+- For a clock face: find the short hour hand and the long minute hand, say
+  which mark each one points to, then work out the time. A reading within
+  about five minutes of the required time counts as a match, because hands
+  are hard to place exactly.
+- For writing or numbers: copy what you can read, character by character.
+
+Give:
+- "steps": what you see, step by step
+- "reading": the value you read, in a few words (for example "about 12:15");
+  empty if you cannot read it
+- "confident": true only if the close-up is sharp enough that you are sure
+- "verdict": "match" if the reading satisfies the rule, "mismatch" if it
+  clearly does not, "unclear" if you cannot tell. Never guess: if you are not
+  confident, the verdict is "unclear".
+- "picture": the number of the close-up that shows it best

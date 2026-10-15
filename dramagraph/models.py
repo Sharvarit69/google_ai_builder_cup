@@ -64,6 +64,9 @@ class LearnedRule(BaseModel):
     shot_ids: list[str] = Field(default_factory=list)     # empty means every shot
     source: Literal["creator_catch", "observation", "manual", "library"] = "manual"
     from_note: str = ""                                   # what the creator originally wrote
+    # True if checking it means reading a small detail (a clock time, writing, a number).
+    # None means not decided yet; the critic decides the first time it checks the rule.
+    close_look: Optional[bool] = None
 
 
 class Canon(BaseModel):
@@ -107,6 +110,9 @@ class RuleCheck(BaseModel):
     rule: str = ""               # filled in by code, not by the model
     verdict: Verdict
     observed: str = ""
+    close_look: bool = False     # checked on sharp, enlarged still frames
+    crop_uri: Optional[str] = None   # the enlarged close-up the reading came from
+    timestamp_seconds: float = 0.0
 
 
 class Observation(BaseModel):

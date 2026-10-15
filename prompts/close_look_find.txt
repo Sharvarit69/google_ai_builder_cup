@@ -1,0 +1,7 @@
+These are {count} still frames from one video clip, taken at {times}.
+This rule must hold in the clip: {rule}
+
+In each frame, find the object the rule is about (for example the clock face,
+the sign or the note). Give a tight bounding box around it as
+[ymin, xmin, ymax, xmax] on a 0 to 1000 scale. If the object is not in a
+frame, give null for that frame. Give exactly one entry per frame, in order.

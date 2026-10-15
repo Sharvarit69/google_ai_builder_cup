@@ -24,6 +24,8 @@ class Problem:
     detail: str
     fix: str
     source: str = "observation"   # "check" (built-in), "rule" (yours) or "observation"
+    image: Optional[str] = None   # an enlarged close-up showing what the critic read
+    review_only: bool = False     # found on a close look: sent to the creator, not remade
 
 
 def _clean(text: str) -> str:
@@ -47,9 +49,9 @@ def for_critic(critic: Optional[CriticResult]) -> list[Problem]:
     reported = {_clean(v.expected).lower() for v in critic.violations}
     for r in critic.rules:
         if r.verdict == "mismatch" and _clean(r.rule).lower() not in reported:
-            found.append(Problem("major", 0.0, f"Breaks your rule: {_short(r.rule, 7)}",
+            found.append(Problem("major", r.timestamp_seconds, f"Breaks your rule: {_short(r.rule, 7)}",
                                  _clean(r.observed) + "." if r.observed else "", _clean(r.rule) + ".",
-                                 "rule"))
+                                 "rule", r.crop_uri, r.close_look))
     for key, name in CHECK_NAMES.items():
         check = getattr(critic, key, None)
         if check is not None and check.verdict == "unclear":
@@ -57,8 +59,9 @@ def for_critic(critic: Optional[CriticResult]) -> list[Problem]:
                                  _clean(check.observed) + "." if check.observed else "", "", "check"))
     for r in critic.rules:
         if r.verdict == "unclear":
-            found.append(Problem("minor", 0.0, f"Could not check your rule: {_short(r.rule, 6)}",
-                                 _clean(r.observed) + "." if r.observed else "", "", "rule"))
+            found.append(Problem("minor", r.timestamp_seconds, f"Could not check your rule: {_short(r.rule, 6)}",
+                                 _clean(r.observed) + "." if r.observed else "", "", "rule",
+                                 r.crop_uri, r.close_look))
     for o in critic.observations:
         found.append(Problem(o.severity, o.timestamp_seconds, _clean(o.headline) or _short(o.what),
                              _clean(o.what) + ".", _clean(o.suggested_fix) + "." if o.suggested_fix.strip() else ""))
