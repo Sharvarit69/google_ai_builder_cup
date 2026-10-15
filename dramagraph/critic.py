@@ -4,9 +4,9 @@ from typing import Optional
 
 from functools import partial
 
-from . import close_look, llm
+from . import close_look, llm, looks
 from .config import get_settings
-from .models import Canon, CriticResult, RuleCheck, ShotSpec
+from .models import Canon, CriticResult, RuleCheck, ShotSpec, Violation
 
 PROMPT_FILE = Path(__file__).resolve().parent.parent / "prompts" / "critic.txt"
 
@@ -107,6 +107,11 @@ def lines(result: CriticResult) -> list[dict]:
         if check is not None:
             rows.append({"key": key, "label": LABELS[key], "verdict": check.verdict,
                          "observed": check.observed})
+        if key == "prop_look":
+            for p in result.look_points:
+                rows.append({"key": f"look_{p.item}_{p.point}",
+                             "label": f"{p.item} · {p.point}" + (" (close look)" if p.close_look else ""),
+                             "verdict": p.verdict, "observed": p.observed})
     for r in result.rules:
         rows.append({"key": f"rule_{r.number}", "label": f"Your rule: {r.rule}",
                      "verdict": r.verdict, "observed": r.observed})
@@ -128,6 +133,41 @@ def decide(result: CriticResult) -> str:
     return "ACCEPT"
 
 
+def _same(a: str, b: str) -> bool:
+    return a.strip().lower() == b.strip().lower()
+
+
+def apply_looks(result: CriticResult, canon: Canon) -> None:
+    """A clear difference in any point of an item's look fails that item's check.
+
+    The person's look counts towards wardrobe, a prop's towards prop_look. Points
+    found on a close look add a problem with the close-ups attached."""
+    owners = [(canon.character.name, "wardrobe", "WARDROBE",
+               f"{canon.character.appearance}; wearing {canon.character.wardrobe}")]
+    owners += [(p.name, "prop_look", "PROP_LOOK", p.description or p.name) for p in canon.props]
+    for name, key, kind, expected in owners:
+        bad = [p for p in result.look_points if _same(p.item, name) and p.verdict == "mismatch"]
+        check = getattr(result, key)
+        if not bad or check is None:
+            continue
+        summary = "; ".join(f"{p.point}: {p.observed}" for p in bad)
+        if check.verdict != "mismatch":
+            check.verdict, check.observed = "mismatch", summary
+        close = [p for p in bad if p.close_look]
+        if not close:
+            continue
+        existing = next((v for v in result.violations if v.type == kind), None)
+        if existing is not None:
+            existing.crop_uri = existing.crop_uri or close[0].crop_uri
+            continue
+        points = ", ".join(dict.fromkeys(p.point for p in close))
+        result.violations.append(Violation(
+            type=kind, headline=f"{name[0].upper()}{name[1:]} looks different: {points}"[:80],
+            timestamp_seconds=close[0].timestamp_seconds, expected=expected,
+            observed="; ".join(f"{p.point}: {p.observed}" for p in close),
+            crop_uri=close[0].crop_uri))
+
+
 def check_clip(
     clip_path: str,
     spec: ShotSpec,
@@ -135,6 +175,7 @@ def check_clip(
     previous_clip_path: Optional[str] = None,
     client=None,
     pictures: Optional[list] = None,
+    references: Optional[dict] = None,
 ) -> CriticResult:
     """Watch one clip (and optionally the shot before it) and return the result."""
     client = client or llm.get_client()
@@ -182,6 +223,16 @@ def check_clip(
             result.rules.append(RuleCheck(number=number, rule=rule.text, verdict="unclear",
                                           close_look=True,
                                           observed=f"The close look failed: {error}"[:200]))
+    # How the person and props look, point by point, on sharp close-ups.
+    known = {canon.character.name.lower()} | {p.name.lower() for p in canon.props}
+    result.look_points = [p for p in result.look_points if p.item.strip().lower() in known]
+    for p in result.look_points:
+        p.close_look, p.crop_uri = False, None
+    try:
+        result.look_points += looks.check(clip_path, canon, ask=close_ask, references=references)
+    except Exception:
+        pass   # no close-ups (for example the clip could not be read); the video checks stand
+    apply_looks(result, canon)
     result.observations = sorted(result.observations, key=lambda o: o.severity != "major")[:3]
     for o in result.observations:
         o.timestamp_seconds = max(0.0, o.timestamp_seconds)

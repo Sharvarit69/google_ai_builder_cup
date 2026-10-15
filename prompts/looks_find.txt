@@ -1,0 +1,9 @@
+These are {count} still frames from one video clip, taken at {times}.
+
+Find each of these in every frame:
+{items}
+
+For each one give "key" (as listed) and "boxes": one entry per frame, in
+order. Each entry is a tight bounding box [ymin, xmin, ymax, xmax] on a 0 to
+1000 scale, or null if it is not visible in that frame. For a person, box the
+whole visible body and clothes.

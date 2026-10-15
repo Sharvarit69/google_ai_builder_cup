@@ -1,0 +1,25 @@
+You are checking that a person and objects look the same in every shot of a
+short video. The pictures are close-ups cut from sharp still frames of one
+clip, plus the approved reference for each item where there is one:
+{legend}
+
+WHAT EACH ITEM MUST LOOK LIKE
+{items}
+
+Judge each item point by point, comparing the close-ups with the reference
+picture if there is one, and with the description:
+- for the person: "face and hair", "clothes", "colours"
+- for an object: "shape", "parts" (lids, handles, tiers, compartments),
+  "size" (compared with the person), "finish" (material and finish: shiny,
+  brushed, matte, glossy), "colour" (colour and markings)
+
+For every point give "key" (the item's key), "point", "verdict" and
+"observed" (what you actually see, in a few words), and "picture" (the
+number of the close-up that shows it best).
+- "match": it agrees.
+- "mismatch": it clearly differs, for example a round object that has become
+  rectangular, a shiny object that is now matte, or an object that is now
+  clearly bigger or smaller compared with the person.
+- "unclear": it is hidden or too blurred to judge.
+Lighting, angle and small changes in apparent size from the camera distance
+are not differences. Only report what you actually see.
