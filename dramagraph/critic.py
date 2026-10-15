@@ -2,7 +2,9 @@
 from pathlib import Path
 from typing import Optional
 
-from . import llm
+from functools import partial
+
+from . import close_look, llm
 from .config import get_settings
 from .models import Canon, CriticResult, RuleCheck, ShotSpec
 
@@ -23,8 +25,13 @@ LABELS = {"wardrobe": "Wardrobe", "prop_look": "Prop appearance", "prop_state": 
           "scene": "Scene", "cross_shot": "Matches previous clip"}
 
 
+def watched_rules(spec: ShotSpec, canon: Canon) -> list:
+    """Rules the critic checks while watching the clip; the rest get a close look."""
+    return [r for r in canon.rules_for(spec.shot_id) if not r.close_look]
+
+
 def rules_block(spec: ShotSpec, canon: Canon) -> str:
-    rules = canon.rules_for(spec.shot_id)
+    rules = watched_rules(spec, canon)
     if not rules:
         return 'There are no extra rules, so "rules" is an empty list.\n'
     lines = ["RULES THE CREATOR ADDED",
@@ -107,11 +114,16 @@ def lines(result: CriticResult) -> list[dict]:
 
 
 def decide(result: CriticResult) -> str:
-    """Any mismatch -> REGENERATE. Else any unclear -> REVIEW. Else ACCEPT."""
-    values = verdicts(result).values()
+    """Any mismatch -> REGENERATE. Else any unclear -> REVIEW. Else ACCEPT.
+
+    A mismatch found on a close look goes to the creator for review instead of a
+    remake, because video models cannot reliably draw details like an exact time."""
+    close = {f"rule_{r.number}" for r in result.rules if r.close_look}
+    values = [v for k, v in verdicts(result).items() if k not in close]
+    close_values = [v for k, v in verdicts(result).items() if k in close]
     if "mismatch" in values:
         return "REGENERATE"
-    if "unclear" in values:
+    if "unclear" in values or close_values and set(close_values) != {"match"}:
         return "REVIEW"
     return "ACCEPT"
 
@@ -126,6 +138,7 @@ def check_clip(
 ) -> CriticResult:
     """Watch one clip (and optionally the shot before it) and return the result."""
     client = client or llm.get_client()
+    close_look.classify(canon.rules_for(spec.shot_id), ask=partial(llm.ask_json, client=client))
     media, labels = [], []
     for label, data, mime in pictures or []:
         media.append(llm.image_part(data, mime))
@@ -149,14 +162,26 @@ def check_clip(
     if not canon.props:
         result.prop_look = None
     # Attach the rule text, drop numbers that do not exist, and make sure no rule is skipped.
-    expected = canon.rules_for(spec.shot_id)
+    expected = watched_rules(spec, canon)
     by_number = {r.number: r for r in result.rules if 1 <= r.number <= len(expected)}
     result.rules = []
     for i, rule in enumerate(expected, start=1):
         got = by_number.get(i) or RuleCheck(number=i, verdict="unclear",
                                             observed="The critic did not report on this rule.")
         got.rule = rule.text
+        got.close_look, got.crop_uri = False, None
         result.rules.append(got)
+    # Rules about small details: sharp still frames, find the object, enlarge, read.
+    close_ask = partial(llm.ask_json, client=client,
+                        model=get_settings().video_understanding_model or None)
+    for rule in (r for r in canon.rules_for(spec.shot_id) if r.close_look):
+        number = len(result.rules) + 1
+        try:
+            result.rules.append(close_look.check_rule(clip_path, rule, number, ask=close_ask))
+        except Exception as error:
+            result.rules.append(RuleCheck(number=number, rule=rule.text, verdict="unclear",
+                                          close_look=True,
+                                          observed=f"The close look failed: {error}"[:200]))
     result.observations = sorted(result.observations, key=lambda o: o.severity != "major")[:3]
     for o in result.observations:
         o.timestamp_seconds = max(0.0, o.timestamp_seconds)

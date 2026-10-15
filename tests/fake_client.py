@@ -17,6 +17,9 @@ class FakeClient:
         self.veo_prompts = []
         self.veo_errors = []      # exceptions to raise on the next generate_videos calls
         self.refuse_next = 0      # number of upcoming generations to refuse
+        # what the close look reads: (reading, confident, verdict)
+        self.close_reading = ("about 12:15", True, "mismatch")
+        self.close_prompts = []
 
     # --- text and video understanding ---
     def generate_content(self, model, contents, config=None):
@@ -42,12 +45,25 @@ class FakeClient:
             return NS(text=json.dumps({"shots": [
                 {"shot_type": "medium shot", "camera_motion": "static",
                  "action": f"action {i+1}", "second_person_hands": False} for i in range(n)]}))
+        if "needs a CLOSE LOOK" in prompt:
+            rule = prompt.split("RULE:")[1].lower()
+            return NS(text=json.dumps({"close_look": any(k in rule for k in ("clock", "sign", "written"))}))
+        if "In each frame, find the object" in prompt:
+            self.close_prompts.append(prompt)
+            count = int(re.search(r"These are (\d+) still frames", prompt).group(1))
+            return NS(text=json.dumps({"boxes": [None] + [[300, 300, 600, 700]] * (count - 1)}))
+        if "enlarged close-ups of one object" in prompt:
+            self.close_prompts.append(prompt)
+            reading, confident, verdict = self.close_reading
+            return NS(text=json.dumps({"steps": "hour hand at 12, minute hand at 3", "reading": reading,
+                                       "confident": confident, "verdict": verdict, "picture": 2}))
         if "Turn their" in prompt:      # learning a rule from a creator's note
             note = prompt.split("THE CREATOR'S NOTE:")[1].split("Return only JSON")[0].strip()
             general = any(k in note.lower() for k in ("appear", "pops", "vanish", "always"))
             text = ("No object appears or vanishes without someone causing it."
                     if "appear" in note.lower() or "pops" in note.lower() else note[0].upper() + note[1:])
-            return NS(text=json.dumps({"text": text, "applies_to_all_shots": general}))
+            return NS(text=json.dumps({"text": text, "applies_to_all_shots": general,
+                                       "close_look": "clock" in note.lower()}))
         if "continuity checker" in prompt:
             videos = [m for m in media if hasattr(m, "state")]
             clip = videos[-1].data

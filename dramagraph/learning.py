@@ -21,6 +21,7 @@ MAX_RULES = 8  # per episode; more than this and the critic's attention is sprea
 class RuleDraft(BaseModel):
     text: str
     applies_to_all_shots: bool = False
+    close_look: bool = False
 
 
 def learn_rule(note: str, spec: ShotSpec, source: str, ask=llm.ask_json) -> LearnedRule:
@@ -31,10 +32,11 @@ def learn_rule(note: str, spec: ShotSpec, source: str, ask=llm.ask_json) -> Lear
             action=spec.action, note=note)
         draft = ask(purpose="learn_rule", prompt=prompt, schema=RuleDraft)
         text, general = draft.text.strip() or note, draft.applies_to_all_shots
+        close = draft.close_look
     except Exception:
-        text, general = note, False
+        text, general, close = note, False, None
     return LearnedRule(text=text, shot_ids=[] if general else [spec.shot_id],
-                       source=source, from_note=note)
+                       source=source, from_note=note, close_look=close)
 
 
 def add_rule(canon: Canon, rule: LearnedRule) -> bool:
@@ -67,7 +69,8 @@ def remember(rule: LearnedRule) -> None:
     rules = library()
     if any(r.text.strip().lower() == rule.text.strip().lower() for r in rules):
         return
-    rules.append(LearnedRule(text=rule.text, source="library", from_note=rule.from_note))
+    rules.append(LearnedRule(text=rule.text, source="library", from_note=rule.from_note,
+                             close_look=rule.close_look))
     _save_library(rules[-MAX_RULES:])
 
 

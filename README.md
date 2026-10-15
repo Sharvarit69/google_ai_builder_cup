@@ -23,6 +23,11 @@ Three layers, from most to least fixed:
    promotes an observation, their note becomes a rule the critic enforces from then on.
    Rules stay in their own episode. A rule that applies to every shot can be kept on
    purpose (☆ Keep); kept rules are offered to new episodes but never added without a click.
+   Rules about small details (a clock time, writing, a number) get a **close look**: sharp
+   still frames are taken from the clip, Gemini finds the object, the app enlarges it, and
+   Gemini reads it step by step. An unsure reading is "unclear", never a guess, and a wrong
+   reading goes to the creator for review instead of an automatic remake, because video
+   models often cannot draw such details exactly.
 
 ## Models
 
