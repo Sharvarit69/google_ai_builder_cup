@@ -1,15 +1,26 @@
 # DramaGraph
 
-A continuity checker for AI-generated short videos, built for the Google AI Builder Cup
+A continuity supervisor for AI-made microdramas, built for the Google AI Builder Cup 2026
 (Media, Content & Digital Experiences track).
 
-DramaGraph turns a short script into a shot plan, generates each shot with Veo, has Gemini
-check every clip against the story's character and prop details, and regenerates only the
-shots that fail. It can also check clips made elsewhere.
+AI video models forget what happened in the previous shot: clothes change colour, a prop
+is open before anyone opens it, a round box turns square. DramaGraph turns a short script
+into a shot plan, makes each shot with Veo, has Gemini check every clip against the story,
+and remakes only the shots that fail. It can also check clips made with any other tool.
 
-## Status
+- **Live app:** https://dramagraph-363915816247.asia-southeast1.run.app
+- **Demo video:** [demo video link]
+- **Deck:** `DramaGraph-deck.pdf` in the submission
 
-Working: script to story beats, character and prop details, shot plan, Veo generation with a spending cap, continuity checks, automatic repair of failed shots, and a check-only mode for clips made elsewhere. Accepted shots are stitched into one vertical video with a title screen and captions.
+## Try it (for judges)
+
+1. **Saved episodes** (sidebar): open an episode to see each shot, its problems, the
+   close-ups the critic compared, every version made, and the final video.
+2. **Check my own clips**: upload up to four short MP4 clips (30 MB each) from any tool, describe the
+   person and one prop, and get the same checks. No video is generated.
+3. **Make an episode**: paste a script, review the plan (character, props, rules, shots),
+   then make the shots. Making video needs the passcode given in the submission form; a
+   hard cap on Veo seconds applies.
 
 ## How the critic decides
 
@@ -33,6 +44,53 @@ Three layers, from most to least fixed:
    Gemini reads it step by step. An unsure reading is "unclear", never a guess, and a wrong
    reading goes to the creator for review instead of an automatic remake, because video
    models often cannot draw such details exactly.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    S[Script] --> P[Plan<br/>Gemini: beats, character,<br/>props, shots]
+    P --> G[Make<br/>Veo 3.1 Fast, 8s 9:16<br/>+ reference pictures]
+    G --> C[Check<br/>Gemini critic on the video<br/>+ close looks on sharp stills]
+    C -->|all match| A[Accept]
+    C -->|mismatch| R[Remake that shot only]
+    R --> G
+    C -->|unclear, or a fine detail| H[Creator reviews]
+    A --> E[Export<br/>FFmpeg: captioned vertical MP4<br/>+ QA report]
+    H --> E
+    U[Clips from any tool] --> C
+```
+
+Everything runs in one container on **Cloud Run**. Episode records, clips, pictures and the
+Veo spending ledger live in **Cloud Storage**; the API key and the video passcode live in
+**Secret Manager**. The model never decides whether to spend money: Gemini reports
+match, mismatch or unclear for each check, and the code applies a fixed rule.
+
+### Code map
+
+| Path | What it does |
+|---|---|
+| `app.py`, `pages_ui/` | Streamlit screens: make an episode (Script, Plan, Shots, Export), check my own clips, saved episodes |
+| `dramagraph/parser.py`, `canon.py`, `planner.py` | Script to beats, character and props, shot plan (Gemini, structured output) |
+| `dramagraph/prompt_compiler.py`, `generator.py` | Veo prompts and generation, reference pictures, retries |
+| `dramagraph/critic.py` | The critic: fixed checks, observations, creator rules, the decision |
+| `dramagraph/close_look.py`, `looks.py` | Sharp stills, find and enlarge, point-by-point looks, approved look |
+| `dramagraph/learning.py` | Turns a creator's note into a rule |
+| `dramagraph/pipeline.py`, `repair.py` | Make, check, repair, re-check, keep or drop a shot |
+| `dramagraph/ration.py` | Hard cap on Veo seconds, with refunds for refused requests |
+| `dramagraph/assembler.py`, `qa_report.py` | Final video and QA report |
+| `prompts/` | Every prompt sent to Gemini, as plain text |
+| `tests/` | 106 tests that run the whole pipeline with a stand-in for Gemini and Veo |
+
+## Results so far
+
+On 9 October 2026, on 9 hand-labelled clips (5 made with Veo, 4 stock): every planted error
+was caught (5 of 5, including a background person the hand label had missed), every
+correct clip was accepted (4 of 4), and a second run gave the same answers. In the first
+full episode, errors on 3 of 4 shots were caught (one planted) and all were fixed by
+repair; the episode used 80 seconds of Veo video, about $8. The creator also found two
+misses in that episode, a prop changing shape and a note appearing from nowhere; both led
+to new checks. The test set is small, so these are early numbers, not a benchmark.
 
 ## Models
 
@@ -93,8 +151,16 @@ The last number is how many times each clip is checked, to measure consistency.
 - Product continuity for ads: the same product, logo and packaging across every clip.
 - Rule libraries per creator or team, once the app has sign-in.
 
+## Known limits
+
+- Veo cannot reliably draw exact details such as a clock time or a line of writing; rules
+  about them are checked on close-ups and sent to the creator rather than remade.
+- One on-screen character; a second person only as hands or a voice.
+- English scripts; 8-second shots.
+
 ## Google technology used
 
-Gemini (planning and video understanding), Veo (video generation), Cloud Run, Cloud Storage.
+Gemini (planning, video understanding, close looks), Veo 3.1 (video generation), Cloud Run,
+Cloud Storage, Secret Manager.
 
 Never commit `.env` or any API key.
