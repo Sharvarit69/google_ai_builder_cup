@@ -90,7 +90,15 @@ correct clip was accepted (4 of 4), and a second run gave the same answers. In t
 full episode, errors on 3 of 4 shots were caught (one planted) and all were fixed by
 repair; the episode used 80 seconds of Veo video, about $8. The creator also found two
 misses in that episode, a prop changing shape and a note appearing from nowhere; both led
-to new checks. The test set is small, so these are early numbers, not a benchmark.
+to new checks.
+
+In the recorded demo run (15 October 2026, 2 shots), the critic caught a planted red top
+and Veo's own mistake of a three-tier, matte lunch box; both were fixed by automatic repair.
+A later remake turned the box rectangular and was caught at once. The creator caught two
+misses (a matte finish and an oversized box), which became rules and led to the
+point-by-point and close-look checks. The run used 6 clips, 48 seconds of Veo video. The
+test set is small, so these are early numbers, not a benchmark, and the newest close-look
+checks have not yet been measured on real clips.
 
 ## Models
 
