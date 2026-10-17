@@ -84,21 +84,13 @@ match, mismatch or unclear for each check, and the code applies a fixed rule.
 
 ## Results so far
 
-On 9 October 2026, on 9 hand-labelled clips (5 made with Veo, 4 stock): every planted error
-was caught (5 of 5, including a background person the hand label had missed), every
-correct clip was accepted (4 of 4), and a second run gave the same answers. In the first
-full episode, errors on 3 of 4 shots were caught (one planted) and all were fixed by
-repair; the episode used 80 seconds of Veo video, about $8. The creator also found two
-misses in that episode, a prop changing shape and a note appearing from nowhere; both led
-to new checks.
-
-In the recorded demo run (15 October 2026, 2 shots), the critic caught a planted red top
-and Veo's own mistake of a three-tier, matte lunch box; both were fixed by automatic repair.
-A later remake turned the box rectangular and was caught at once. The creator caught two
-misses (a matte finish and an oversized box), which became rules and led to the
-point-by-point and close-look checks. The run used 6 clips, 48 seconds of Veo video. The
-test set is small, so these are early numbers, not a benchmark, and the newest close-look
-checks have not yet been measured on real clips.
+From the QA report of the recorded demo run (15 October 2026, 2 shots): the critic caught 3
+errors, a planted red top and two of Veo's own mistakes (a three-tier, matte lunch box, and
+later a rectangular box). Both shots with an error were fixed by automatic repair. The
+creator caught two misses, a matte finish and an oversized box; both became rules and led
+to the point-by-point and close-look checks, which are not yet measured on real clips. The
+run used 6 clips, 48 seconds of Veo video. One run is a demonstration, not a benchmark; a
+larger labelled test set is next.
 
 ## Models
 
