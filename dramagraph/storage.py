@@ -19,6 +19,8 @@ def _bucket():
 
 
 def save_bytes(path: str, data: bytes) -> str:
+    if get_settings().judge_mode:
+        raise PermissionError("This demo is browse-only, so nothing can be changed or saved.")
     bucket = _bucket()
     if bucket is None:
         target = LOCAL_ROOT / path

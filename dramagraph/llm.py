@@ -14,7 +14,15 @@ T = TypeVar("T", bound=BaseModel)
 RETRY_WAITS = [2, 4, 8]  # seconds, for rate limits and server errors
 
 
+JUDGE_MODE_MESSAGE = ("Making and checking clips is switched off in this demo to protect API costs. "
+                      "The demo video shows it working.")
+
+
 def get_client():
+    """The only way the app reaches Gemini or Veo. In judge mode it refuses, so no visitor
+    can spend anything, whatever button they find."""
+    if get_settings().judge_mode:
+        raise RuntimeError(JUDGE_MODE_MESSAGE)
     from google import genai  # imported only when a real call is made
 
     key = get_settings().gemini_api_key
