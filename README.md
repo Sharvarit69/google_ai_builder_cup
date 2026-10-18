@@ -84,13 +84,20 @@ match, mismatch or unclear for each check, and the code applies a fixed rule.
 
 ## Results so far
 
-From the QA report of the recorded demo run (15 October 2026, 2 shots): the critic caught 3
-errors, a planted red top and two of Veo's own mistakes (a three-tier, matte lunch box, and
-later a rectangular box). Both shots with an error were fixed by automatic repair. The
-creator caught two misses, a matte finish and an oversized box; both became rules and led
-to the point-by-point and close-look checks, which are not yet measured on real clips. The
-run used 6 clips, 48 seconds of Veo video. One run is a demonstration, not a benchmark; a
-larger labelled test set is next.
+From the recorded demo run on the deployed app (2 shots) and its QA report:
+
+- The critic flagged 3 clips: a planted test (a red top instead of the light-blue shirt),
+  and two of Veo's own mistakes (a three-tier, duller lunch box; later a rectangular box,
+  flagged as two major problems).
+- Both failed first tries were remade automatically, and both repairs passed the critic.
+- The creator caught two things the critic passed, a duller finish and an oversized box,
+  fixed them in her own words, and both fixes became rules. The QA report shows the first
+  rule checked as a match on her remake.
+- The run used 6 clips, 48 seconds of the video budget, and exported an 18-second vertical
+  episode with a title screen and captions.
+
+One run is a demonstration, not a benchmark. The close-look checks were added after this
+run and are not yet measured on real clips.
 
 ## Models
 
