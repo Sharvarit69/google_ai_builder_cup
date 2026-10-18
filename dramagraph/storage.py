@@ -21,10 +21,9 @@ def _bucket():
 
 
 def _writable(path: str) -> None:
-    """In judge mode only a reserved check may save anything (plus the allowance count)."""
-    if get_settings().judge_mode and not judge.active() and not path.startswith("judge/"):
-        raise PermissionError("This is switched off in the public demo, so nothing can be "
-                              "changed or saved.")
+    """In the public demo, the demo episodes cannot be changed."""
+    if judge.protected(path):
+        raise PermissionError(judge.PROTECTED)
 
 
 def save_bytes(path: str, data: bytes) -> str:

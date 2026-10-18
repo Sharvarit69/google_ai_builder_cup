@@ -1,37 +1,28 @@
-"""Judge mode: a public demo that cannot run up the owner's API bill.
+"""Judge mode: the public demo cannot run up the owner's API bill.
 
-With JUDGE_MODE on, visitors can browse saved episodes, and can try "Check my own
-clips" a limited number of times a day for all visitors together
-(JUDGE_CHECKS_PER_DAY). Everything else that would call Gemini or Veo, or save
-anything, is refused at the source: llm.get_client and storage.save_bytes only work
-inside an allowance that a reserved check has opened.
-
-The daily count is kept in Cloud Storage and updated atomically, so two visitors at
-the same moment cannot both take the last check. A check is counted before it
-starts and is not given back if it fails.
+The app looks and works exactly as normal. Behind it, with JUDGE_MODE on:
+- Every Gemini request uses one unit of a daily allowance shared by all visitors
+  (JUDGE_GEMINI_CALLS_PER_DAY). The unit is taken before the request is sent, and the
+  count is updated atomically, so it is a hard cap on the number of requests.
+- Making video with Veo is switched off.
+- The episodes listed in JUDGE_EPISODES are shown but cannot be changed, so every
+  visitor sees the demo exactly as it was made.
 """
-import contextvars
-from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from .config import get_settings
 
-LEDGER = "judge/checks.json"
-_open = contextvars.ContextVar("judge_allowance", default=False)
+LEDGER = "judge/gemini_calls.json"
+OUT_OF_ALLOWANCE = ("Today's free AI checks for this public demo are used up. Please try "
+                    "again tomorrow; the demo video shows everything working.")
+NO_VIDEO = ("Making new video is switched off in this public demo to protect API costs. "
+            "The demo video shows it working.")
+PROTECTED = ("This is the demo episode, kept exactly as it was made, so it can't be changed "
+             "here. Start a new episode or use Check my own clips to try things yourself.")
 
 
-def active() -> bool:
-    """True while a reserved check is running in this session."""
-    return _open.get()
-
-
-@contextmanager
-def opened():
-    token = _open.set(True)
-    try:
-        yield
-    finally:
-        _open.reset(token)
+def on() -> bool:
+    return get_settings().judge_mode
 
 
 def _today() -> str:
@@ -39,8 +30,9 @@ def _today() -> str:
 
 
 def used_today() -> int:
-    from . import storage
     import json
+
+    from . import storage
 
     if not storage.exists(LEDGER):
         return 0
@@ -48,21 +40,38 @@ def used_today() -> int:
 
 
 def remaining() -> int:
-    return max(0, get_settings().judge_checks_per_day - used_today())
+    return max(0, get_settings().judge_gemini_calls_per_day - used_today())
 
 
-def reserve(clips: int) -> bool:
-    """Take `clips` checks from today's allowance, all or nothing. False if not enough left."""
+def spend(units: int = 1) -> bool:
+    """Take units from today's allowance, all or nothing. False if not enough left."""
     from . import storage
 
-    cap, today = get_settings().judge_checks_per_day, _today()
+    cap, today = get_settings().judge_gemini_calls_per_day, _today()
 
     def change(ledger):
-        ledger = dict(ledger or {})
-        used = int(ledger.get(today, 0))
-        if clips <= 0 or used + clips > cap:
+        used = int((ledger or {}).get(today, 0))
+        if units <= 0 or used + units > cap:
             return None, False                     # nothing written
-        ledger = {today: used + clips}             # keep only today
-        return ledger, True
+        return {today: used + units}, True         # only today is kept
 
     return storage.update_json(LEDGER, change)
+
+
+def before_gemini_request() -> None:
+    """Called right before every request sent to Gemini."""
+    if on() and not spend(1):
+        raise RuntimeError(OUT_OF_ALLOWANCE)
+
+
+def before_video() -> None:
+    """Called before any Veo request."""
+    if on():
+        raise RuntimeError(NO_VIDEO)
+
+
+def protected(path: str) -> bool:
+    """True for files of a demo episode while judge mode is on."""
+    if not on():
+        return False
+    return any(path.startswith(f"episodes/{i}/") for i in get_settings().judge_episodes)

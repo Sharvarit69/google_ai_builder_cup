@@ -30,6 +30,9 @@ def call_veo(prompt: str, reference=None, client=None, sleep=time.sleep) -> byte
     settings = get_settings()
     if not settings.veo_model:
         raise RequestRejected("VEO_MODEL is not set.")
+    from . import judge
+
+    judge.before_video()                    # public demo: no video, ever
     client = client or llm.get_client()
     options = {"aspect_ratio": "9:16"}
     # reference is a list of (bytes, mime type) pairs; plain bytes is accepted too
@@ -83,6 +86,9 @@ def generate_clip(episode: Episode, shot: Shot, prompt: str, kind: str,
         attempt.clip_uri = path
         return attempt
 
+    from . import judge
+
+    judge.before_video()                    # public demo: stop before any budget is taken
     seconds = shot.spec.duration_seconds
     if not ration.reserve(seconds, f"{episode.episode_id} {shot.spec.shot_id} a{attempt.attempt_no}"):
         attempt.error = RATION_EMPTY
