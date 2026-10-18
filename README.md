@@ -14,17 +14,16 @@ and remakes only the shots that fail. It can also check clips made with any othe
 
 ## Try it (for judges)
 
-The live app is the full app, set up as a **public demo** that cannot run up API costs:
+The live app is the full app, with a daily limit so a public link cannot run up API costs:
 
-1. **Saved episodes:** open the demo episode and choose "Continue working on this episode"
-   to see it exactly as it was made: the plan, every shot and version, what the critic
-   caught, the rules learned, the QA report and the final video. The demo episode is
-   locked, so every visitor sees the same thing.
-2. **Check my own clips**, or start a new episode from a script: these use Gemini, from a
+1. **Saved episodes:** open The Last Samosa and choose "Continue working on this episode"
+   to step through Script, Plan, Shots and Export as it was made: every shot and version,
+   what the critic caught, the rules learned, the QA report and the final video.
+2. **Check my own clips**, or start a new episode from a script. These use Gemini, from a
    small daily allowance shared by all visitors.
 
-Making new video is switched off in the public demo; the demo video shows the full flow.
-To run everything yourself, deploy your own copy with your own key (below).
+Making new video needs a passcode and is switched off on the public link; the demo video
+shows the full flow. To run everything yourself, deploy your own copy with your own key.
 
 ## How the critic decides
 
@@ -112,11 +111,11 @@ run and are not yet measured on real clips.
 | Video generation | Veo `veo-3.1-fast-generate-preview`, 8-second 9:16 clips at 720p | `VEO_MODEL` |
 
 Other settings are listed in `.env.example`. `CRITIC_FPS` sets how many frames a second the
-critic looks at (Gemini's default is about 1). `JUDGE_MODE=1` turns on the public demo:
-every Gemini request, retries included, uses one unit of `JUDGE_GEMINI_CALLS_PER_DAY` (default
-60, shared by all visitors and counted atomically before the request is sent); Veo is
-switched off; and the episodes named in `JUDGE_EPISODES` are the only ones listed and
-cannot be changed.
+critic looks at (Gemini's default is about 1). `JUDGE_MODE=1` turns on the daily limit for
+a public link: every Gemini request, retries included, uses one unit of
+`JUDGE_GEMINI_CALLS_PER_DAY` (default 60, shared by all visitors, counted atomically before
+the request is sent), and Veo is switched off. Optionally, episodes named in
+`JUDGE_EPISODES` are listed alone and cannot be changed.
 
 ## Run locally
 
