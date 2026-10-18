@@ -6,7 +6,7 @@ from typing import Optional, Type, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from . import storage
+from . import judge, storage
 from .config import get_settings
 
 T = TypeVar("T", bound=BaseModel)
@@ -14,17 +14,7 @@ T = TypeVar("T", bound=BaseModel)
 RETRY_WAITS = [2, 4, 8]  # seconds, for rate limits and server errors
 
 
-JUDGE_MODE_MESSAGE = ("This is switched off in the public demo to protect API costs. "
-                      "The demo video shows it working.")
-
-
 def get_client():
-    """The only way the app reaches Gemini or Veo. In judge mode it refuses unless a
-    reserved check is running, so no visitor can spend more than the daily allowance."""
-    from . import judge
-
-    if get_settings().judge_mode and not judge.active():
-        raise RuntimeError(JUDGE_MODE_MESSAGE)
     from google import genai  # imported only when a real call is made
 
     key = get_settings().gemini_api_key
@@ -108,6 +98,7 @@ def ask_json(
         started = time.time()
         reply_text = None
         for wait in RETRY_WAITS + [None]:
+            judge.before_gemini_request()   # public demo: a hard daily cap, retries included
             try:
                 reply = client.models.generate_content(
                     model=model,
