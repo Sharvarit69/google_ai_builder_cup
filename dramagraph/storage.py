@@ -1,8 +1,10 @@
 """Read and write files. Uses Cloud Storage if GCS_BUCKET is set, else local_data/."""
+import json
 import os
 import tempfile
 from pathlib import Path
 
+from . import judge
 from .config import get_settings
 from .models import Episode
 
@@ -18,9 +20,15 @@ def _bucket():
     return storage.Client().bucket(name)
 
 
+def _writable(path: str) -> None:
+    """In judge mode only a reserved check may save anything (plus the allowance count)."""
+    if get_settings().judge_mode and not judge.active() and not path.startswith("judge/"):
+        raise PermissionError("This is switched off in the public demo, so nothing can be "
+                              "changed or saved.")
+
+
 def save_bytes(path: str, data: bytes) -> str:
-    if get_settings().judge_mode:
-        raise PermissionError("This demo is browse-only, so nothing can be changed or saved.")
+    _writable(path)
     bucket = _bucket()
     if bucket is None:
         target = LOCAL_ROOT / path
@@ -29,6 +37,39 @@ def save_bytes(path: str, data: bytes) -> str:
     else:
         bucket.blob(path).upload_from_string(data)
     return path
+
+
+def update_json(path: str, change, attempts: int = 10):
+    """Read a small JSON file, apply change(data) -> (new data or None, result), and
+    write it back only if nobody else changed it in between. Returns the result.
+
+    On Cloud Storage this uses the object's generation number, so two writers at once
+    cannot both win; the loser reads again and retries."""
+    _writable(path)
+    bucket = _bucket()
+    if bucket is None:
+        target = LOCAL_ROOT / path
+        data = json.loads(target.read_bytes()) if target.exists() else None
+        new, result = change(data)
+        if new is not None:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(json.dumps(new).encode("utf-8"))
+        return result
+    for _ in range(attempts):
+        try:
+            blob = bucket.get_blob(path)
+            generation = blob.generation if blob is not None else 0   # 0: must not exist yet
+            data = (json.loads(blob.download_as_bytes(if_generation_match=generation))
+                    if blob is not None else None)
+            new, result = change(data)
+            if new is None:
+                return result
+            bucket.blob(path).upload_from_string(json.dumps(new), if_generation_match=generation)
+            return result
+        except Exception as error:      # someone else wrote in between: read again and retry
+            if type(error).__name__ != "PreconditionFailed":
+                raise
+    raise RuntimeError("Too many people at once. Please try again in a moment.")
 
 
 def load_bytes(path: str) -> bytes:
