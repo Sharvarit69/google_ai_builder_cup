@@ -14,11 +14,16 @@ and remakes only the shots that fail. It can also check clips made with any othe
 
 ## Try it (for judges)
 
-The live app runs in **browse-only mode**, so visitors cannot spend API credits. Open the
-saved episode to see the plan the critic checked against, every shot and every version
-made, what the critic caught in each, the QA report, and the final video. The demo video
-shows the full flow: script, plan, making the shots, catching errors and repairing them.
+The live app runs as a **public demo** that cannot run up API costs:
 
+1. **Saved episodes:** open the demo episode to see the plan the critic checked against,
+   every shot and every version made, what the critic caught in each, the QA report and
+   the final video.
+2. **Check my own clips:** upload up to four short MP4 clips (30 MB each) from any tool,
+   describe the person and one prop, and get the same checks. A small number of clip
+   checks a day is shared by all visitors; the sidebar shows how many are left.
+
+Making new video is switched off in the public demo; the demo video shows the full flow.
 To run everything yourself, deploy your own copy with your own key (below).
 
 ## How the critic decides
@@ -107,9 +112,10 @@ run and are not yet measured on real clips.
 | Video generation | Veo `veo-3.1-fast-generate-preview`, 8-second 9:16 clips at 720p | `VEO_MODEL` |
 
 Other settings are listed in `.env.example`. `CRITIC_FPS` sets how many frames a second the
-critic looks at (Gemini's default is about 1). `JUDGE_MODE=1` makes the app browse-only:
-it shows saved episodes (limited to the ids in `JUDGE_EPISODES`, if set), refuses every
-Gemini and Veo call, and saves nothing.
+critic looks at (Gemini's default is about 1). `JUDGE_MODE=1` turns on the public demo:
+saved episodes (limited to the ids in `JUDGE_EPISODES`, if set) plus `JUDGE_CHECKS_PER_DAY`
+clip checks a day for all visitors together (default 10). The count is updated atomically,
+and every other Gemini or Veo call, and every other write, is refused.
 
 ## Run locally
 
