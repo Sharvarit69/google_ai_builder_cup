@@ -8,7 +8,22 @@ from pages_ui.shot_cards import show_episode
 MAX_MB = 30
 
 
-def render() -> None:
+def _reserve(clips: int) -> bool:
+    from dramagraph import judge
+
+    return judge.reserve(clips)
+
+
+def _allowance(judge_mode: bool):
+    """Opens the gate to Gemini and storage for one reserved check, only in judge mode."""
+    from contextlib import nullcontext
+
+    from dramagraph import judge
+
+    return judge.opened() if judge_mode else nullcontext()
+
+
+def render(judge_mode: bool = False) -> None:
     st.header("Check clips")
     st.write(
         "Upload up to four clips in story order and say what should be true in them. "
@@ -48,18 +63,27 @@ def render() -> None:
         ]
         go = st.form_submit_button("Check clips", type="primary")
 
+    if judge_mode:
+        from dramagraph import judge
+
+        st.caption(f"Each clip uses one of today's free checks. Left today: {judge.remaining()}.")
+
     if go:
         if not files or len(files) > MAX_CLIPS or too_big or not ready:
             st.error("Fix the problems above, then try again.")
+        elif judge_mode and not _reserve(len(files)):
+            st.error("Not enough free checks left today for these clips. Try fewer clips, or "
+                     "come back tomorrow; the demo video shows the checks working.")
         else:
             canon = make_canon(name, appearance, wardrobe, prop_name, states,
                                location, time_of_day, prop_look)
             bar = st.progress(0.0, "Starting")
             try:
-                episode = run_check_only(
-                    title, canon, [f.getvalue() for f in files],
-                    on_progress=lambda msg, frac: bar.progress(frac, msg),
-                )
+                with _allowance(judge_mode):
+                    episode = run_check_only(
+                        title, canon, [f.getvalue() for f in files],
+                        on_progress=lambda msg, frac: bar.progress(frac, msg),
+                    )
                 st.session_state["last_check_id"] = episode.episode_id
             except Exception as error:
                 st.error(f"The check failed: {error}")
