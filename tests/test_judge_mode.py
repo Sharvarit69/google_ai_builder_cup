@@ -1,5 +1,6 @@
 """Public demo (judge mode): the app works as normal, but every Gemini request uses one
-unit of a hard daily allowance, Veo is switched off, and the demo episode is locked."""
+unit of a hard daily allowance, video comes out of a hard budget, and the demo episode can
+be locked."""
 import json
 
 import pytest
@@ -74,20 +75,22 @@ def test_no_allowance_outside_judge_mode(monkeypatch):
     assert client.calls == 5 and not storage.exists(judge.LEDGER)
 
 
-def test_video_is_switched_off_before_any_budget_is_taken(monkeypatch):
+def test_judges_can_make_video_until_the_video_budget_is_used(monkeypatch):
     from dramagraph import ration
     from tests.test_pipeline import planned_episode
-    monkeypatch.setenv("JUDGE_MODE", "0")
-    monkeypatch.setattr(llm, "get_client", lambda: FakeClient())
-    for k, v in {"VIDEO_UNDERSTANDING_MODEL": "v", "VEO_MODEL": "veo"}.items():
+    monkeypatch.setattr(generator, "POLL_SECONDS", 0)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    for k, v in {"VIDEO_UNDERSTANDING_MODEL": "v", "VEO_MODEL": "veo", "SHOT_SECONDS": "8",
+                 "JUDGE_GEMINI_CALLS_PER_DAY": "100", "VEO_BUDGET_SECONDS": "16"}.items():
         monkeypatch.setenv(k, v)
+    monkeypatch.setattr(llm, "get_client", lambda: FakeClient())
     ep = planned_episode(1)
-    monkeypatch.setenv("JUDGE_MODE", "1")
-    with pytest.raises(RuntimeError, match="switched off"):
-        generator.generate_clip(ep, ep.shots[0], "prompt", "INITIAL")
-    with pytest.raises(RuntimeError, match="switched off"):
-        generator.call_veo("prompt", client=FakeClient())
-    assert ration.used() == 0
+    first = generator.generate_clip(ep, ep.shots[0], "prompt", "INITIAL")
+    second = generator.generate_clip(ep, ep.shots[0], "prompt", "AUTO_REPAIR")
+    third = generator.generate_clip(ep, ep.shots[0], "prompt", "CUSTOM_REPAIR")
+    assert first.clip_uri and second.clip_uri
+    assert not third.clip_uri and third.error == generator.RATION_EMPTY
+    assert ration.used() == 16 and ration.remaining() == 0
 
 
 def test_demo_episode_is_locked_but_new_work_can_be_saved():
@@ -126,10 +129,14 @@ class FakeBlob:
     def download_as_bytes(self, if_generation_match=None):
         return self.bucket.data
 
+    def exists(self):
+        return self.bucket.data is not None
+
     def upload_from_string(self, data, if_generation_match=None):
         if self.bucket.interfere:                    # another visitor writes first
             self.bucket.interfere -= 1
-            self.bucket.data = json.dumps({judge._today(): 2}).encode()
+            other = self.bucket.other or {judge._today(): 2}
+            self.bucket.data = json.dumps(other).encode()
             self.bucket.generation += 1
             raise PreconditionFailed("someone else wrote")
         assert if_generation_match == self.bucket.generation
@@ -137,8 +144,9 @@ class FakeBlob:
 
 
 class FakeBucket:
-    def __init__(self):
+    def __init__(self, other=None):
         self.data, self.generation, self.interfere = None, 0, 1
+        self.other = other          # what the other visitor writes first
 
     def get_blob(self, name):
         return FakeBlob(self) if self.data is not None else None
@@ -153,3 +161,15 @@ def test_two_visitors_at_once_cannot_both_take_the_last_units(monkeypatch):
     # this visitor wants 2 while another takes 2 in the same moment: 2 + 2 > 3
     assert judge.spend(2) is False
     assert json.loads(bucket.data) == {judge._today(): 2}
+
+
+def test_two_people_cannot_both_take_the_last_video_seconds(monkeypatch):
+    from dramagraph import ration
+    monkeypatch.setenv("VEO_BUDGET_SECONDS", "96")
+    # someone else takes 8 seconds in the same moment, leaving 8 of 96
+    bucket = FakeBucket(other={"used": 88, "entries": []})
+    monkeypatch.setattr(storage, "_bucket", lambda: bucket)
+    assert ration.reserve(16, "this visitor") is False       # 88 + 16 > 96: refused
+    assert json.loads(bucket.data)["used"] == 88
+    assert ration.reserve(8, "this visitor") is True         # exactly fits
+    assert json.loads(bucket.data)["used"] == 96 and ration.remaining() == 0

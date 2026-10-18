@@ -14,10 +14,6 @@ def _load() -> dict:
     return {"used": 0, "entries": []}
 
 
-def _save(ledger: dict) -> None:
-    storage.save_bytes(LEDGER, json.dumps(ledger, indent=2).encode("utf-8"))
-
-
 def used() -> int:
     return _load()["used"]
 
@@ -32,19 +28,27 @@ def _entry(ledger, seconds, note):
         {"time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
          "seconds": seconds, "note": note}
     )
-    _save(ledger)
+    return ledger
 
 
 def reserve(seconds: int, note: str = "") -> bool:
     """Take seconds from the budget before a Veo call. False means stop."""
-    ledger = _load()
-    if ledger["used"] + seconds > get_settings().veo_budget_seconds:
-        return False
-    _entry(ledger, seconds, note)
-    return True
+    cap = get_settings().veo_budget_seconds
+
+    def change(ledger):
+        ledger = ledger or {"used": 0, "entries": []}
+        if ledger["used"] + seconds > cap:
+            return None, False                     # nothing written
+        return _entry(ledger, seconds, note), True
+
+    # atomic, so two people making video at the same moment cannot both take the last seconds
+    return storage.update_json(LEDGER, change)
 
 
 def refund(seconds: int, note: str = "") -> None:
     """Give seconds back. Only for requests Veo rejected before starting any work."""
-    ledger = _load()
-    _entry(ledger, -min(seconds, ledger["used"]), "refund: " + note)
+    def change(ledger):
+        ledger = ledger or {"used": 0, "entries": []}
+        return _entry(ledger, -min(seconds, ledger["used"]), "refund: " + note), None
+
+    storage.update_json(LEDGER, change)

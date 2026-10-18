@@ -4,7 +4,8 @@ The app looks and works exactly as normal. Behind it, with JUDGE_MODE on:
 - Every Gemini request uses one unit of a daily allowance shared by all visitors
   (JUDGE_GEMINI_CALLS_PER_DAY). The unit is taken before the request is sent, and the
   count is updated atomically, so it is a hard cap on the number of requests.
-- Making video with Veo is switched off.
+- Making video works as normal: it needs the passcode, and every second comes out of
+  the hard video budget (VEO_BUDGET_SECONDS, see ration.py).
 - The episodes listed in JUDGE_EPISODES are shown but cannot be changed, so every
   visitor sees the demo exactly as it was made.
 """
@@ -15,8 +16,6 @@ from .config import get_settings
 LEDGER = "judge/gemini_calls.json"
 OUT_OF_ALLOWANCE = ("Today's free AI checks for this public demo are used up. Please try "
                     "again tomorrow; the demo video shows everything working.")
-NO_VIDEO = ("Making new video is switched off in this public demo to protect API costs. "
-            "The demo video shows it working.")
 PROTECTED = ("This is the demo episode, kept exactly as it was made, so it can't be changed "
              "here. Start a new episode or use Check my own clips to try things yourself.")
 
@@ -62,12 +61,6 @@ def before_gemini_request() -> None:
     """Called right before every request sent to Gemini."""
     if on() and not spend(1):
         raise RuntimeError(OUT_OF_ALLOWANCE)
-
-
-def before_video() -> None:
-    """Called before any Veo request."""
-    if on():
-        raise RuntimeError(NO_VIDEO)
 
 
 def protected(path: str) -> bool:
