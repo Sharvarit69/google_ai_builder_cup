@@ -14,9 +14,7 @@ from dramagraph.planner import MAX_SHOTS, apply_rules, plan_shots, replan
 from pages_ui.shot_cards import chosen, play, report_button, show_attempts, show_final
 
 SAMPLE = """Priya sits at her office desk in the morning, guarding her closed steel lunch box.
-She glances around the office and pulls the lunch box closer.
-Priya checks the wall clock. It is finally noon.
-Priya opens the lunch box. It is empty, except for a note that says: Thanks for lunch. Boss."""
+Priya opens the lunch box. It is empty."""
 
 SCRIPT, PLAN, SHOTS, EXPORT = "1 · Script", "2 · Plan", "3 · Shots", "4 · Export"
 ICON = {"ACCEPTED": "✅", "OVERRULED": "☑️", "FLAGGED": "⚠️", "DROPPED": "🗑️",
