@@ -4,26 +4,30 @@ A continuity supervisor for AI-made microdramas, built for the Google AI Builder
 (Media, Content & Digital Experiences track).
 
 AI video models forget what happened in the previous shot: clothes change colour, a prop
-is open before anyone opens it, a round box turns square. DramaGraph turns a short script
-into a shot plan, makes each shot with Veo, has Gemini check every clip against the story,
-and remakes only the shots that fail. It can also check clips made with any other tool.
+is open before anyone opens it, a two-tier lunch box gains a third tier. DramaGraph turns a
+short script into a shot plan, makes each shot with Veo, has Gemini check every clip against
+the story, and remakes only the shots that fail. It can also check clips made with any other tool.
 
 - **Live app:** https://dramagraph-363915816247.asia-southeast1.run.app
-- **Demo video:** [demo video link]
+- **Demo video:** https://youtu.be/eG2w0gZRy8w
 - **Deck:** `DramaGraph-deck.pdf` in the submission
 
 ## Try it (for judges)
 
-The live app is the full app, with a daily limit so a public link cannot run up API costs:
+The live app is the full app, with fixed limits so a public link cannot run up API costs:
 
-1. **Saved episodes:** open The Last Samosa and choose "Continue working on this episode"
-   to step through Script, Plan, Shots and Export as it was made: every shot and version,
+1. **Saved episodes:** pick **The Last Samosa · 2026-10-15** (the recorded demo run). The
+   page shows the final video, every shot and every version. Choose "Continue working on
+   this episode" to step through Script, Plan, Shots and Export as it was made: every shot and version,
    what the critic caught, the rules learned, the QA report and the final video.
 2. **Check my own clips**, or start a new episode from a script. These use Gemini, from a
-   small daily allowance shared by all visitors.
+   daily allowance shared by all visitors.
+3. **Make video:** when the app asks for the passcode, use the one given in the submission
+   deck. The public link has a fixed video budget of 96 seconds (twelve 8-second clips)
+   shared by all judges; the sidebar shows what is left. When it runs out, the saved
+   episode and Check my own clips still work.
 
-Making new video needs a passcode and is switched off on the public link; the demo video
-shows the full flow. To run everything yourself, deploy your own copy with your own key.
+To run everything yourself, deploy your own copy with your own key.
 
 ## How the critic decides
 
@@ -83,19 +87,19 @@ match, mismatch or unclear for each check, and the code applies a fixed rule.
 | `dramagraph/ration.py` | Hard cap on Veo seconds, with refunds for refused requests |
 | `dramagraph/assembler.py`, `qa_report.py` | Final video and QA report |
 | `prompts/` | Every prompt sent to Gemini, as plain text |
-| `tests/` | 106 tests that run the whole pipeline with a stand-in for Gemini and Veo |
+| `tests/` | 116 tests that run the whole pipeline with a stand-in for Gemini and Veo |
 
 ## Results so far
 
 From the recorded demo run on the deployed app (2 shots) and its QA report:
 
-- The critic flagged 3 clips: a planted test (a red top instead of the light-blue shirt),
-  and two of Veo's own mistakes (a three-tier, duller lunch box; later a rectangular box,
-  flagged as two major problems).
+- The critic caught a planted test (a red top instead of the light-blue shirt) and one of
+  Veo's own mistakes (a three-tier, duller lunch box).
 - Both failed first tries were remade automatically, and both repairs passed the critic.
 - The creator caught two things the critic passed, a duller finish and an oversized box,
   fixed them in her own words, and both fixes became rules. The QA report shows the first
   rule checked as a match on her remake.
+- Every version is kept, and the creator chose which clip goes into the final cut.
 - The run used 6 clips, 48 seconds of the video budget, and exported an 18-second vertical
   episode with a title screen and captions.
 
@@ -114,7 +118,8 @@ Other settings are listed in `.env.example`. `CRITIC_FPS` sets how many frames a
 critic looks at (Gemini's default is about 1). `JUDGE_MODE=1` turns on the daily limit for
 a public link: every Gemini request, retries included, uses one unit of
 `JUDGE_GEMINI_CALLS_PER_DAY` (default 60, shared by all visitors, counted atomically before
-the request is sent), and Veo is switched off. Optionally, episodes named in
+the request is sent). Video still needs the passcode and comes out of the hard
+`VEO_BUDGET_SECONDS` budget, whose ledger is also updated atomically. Optionally, episodes named in
 `JUDGE_EPISODES` are listed alone and cannot be changed.
 
 ## Run locally
