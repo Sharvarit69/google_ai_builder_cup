@@ -16,8 +16,9 @@ and remakes only the shots that fail. It can also check clips made with any othe
 
 The live app is the full app, with a daily limit so a public link cannot run up API costs:
 
-1. **Saved episodes:** open The Last Samosa and choose "Continue working on this episode"
-   to step through Script, Plan, Shots and Export as it was made: every shot and version,
+1. **Saved episodes:** pick **The Last Samosa · 2026-10-15** (the recorded demo run). The
+   page shows the final video, every shot and every version. Choose "Continue working on
+   this episode" to step through Script, Plan, Shots and Export as it was made: every shot and version,
    what the critic caught, the rules learned, the QA report and the final video.
 2. **Check my own clips**, or start a new episode from a script. These use Gemini, from a
    small daily allowance shared by all visitors.
