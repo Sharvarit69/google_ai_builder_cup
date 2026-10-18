@@ -23,6 +23,9 @@ class Settings:
     max_repairs: int
     max_gen_retries: int
     critic_fps: float  # frames per second the critic samples; 0 means Gemini's default (about 1)
+    judge_mode: bool  # browse-only: no Gemini or Veo calls and nothing saved, so visitors cost nothing
+    judge_episodes: tuple  # in judge mode, the episode ids visitors may open; empty means all
+    judge_checks_per_day: int  # in judge mode, clip checks allowed per day for all visitors together
 
 
 def get_settings() -> Settings:
@@ -39,4 +42,7 @@ def get_settings() -> Settings:
         max_repairs=int(env("MAX_REPAIRS", "2")),
         max_gen_retries=int(env("MAX_GEN_RETRIES", "2")),
         critic_fps=float(env("CRITIC_FPS", "0") or 0),
+        judge_mode=env("JUDGE_MODE", "").strip().lower() in ("1", "true", "yes", "on"),
+        judge_episodes=tuple(i.strip() for i in env("JUDGE_EPISODES", "").split(",") if i.strip()),
+        judge_checks_per_day=int(env("JUDGE_CHECKS_PER_DAY", "10") or 0),
     )
